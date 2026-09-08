@@ -1,12 +1,12 @@
-# Inside Sales Smart Hub V7
+# Inside Sales Smart Hub V8
 
-MVP demonstrativo para Business Case de Inside Sales.
+## Melhorias consolidadas
+- Central de Decisão: Pipeline, Cross Sell/Upsell, Prioridades Comerciais e Alertas Executivos
+- Smart Workflow: Fila Comercial Priorizada, Status SF e Próxima Ação editáveis
+- Cross Sell/Upsell descritivo, opcional e sob decisão do vendedor
+- Follow-up Comercial: D+2, D+5, D+10 e depois a cada 5 dias
+- Dashboard de FUP com comentários editáveis
+- Performance Comercial do Time com indicador visual, negociações e adoção de Growth
+- Salesforce: Identify, Develop, Propose, Order Promised e Lost Closed
 
-## Novidades V7
-- Smart Workflow aplica Price List fictícia e desconto máximo automaticamente.
-- Smart Growth é consultado antes da geração da proposta.
-- Vendedor decide incluir ou não Cross-sell / Upsell.
-- Proposta comercial PDF é gerada automaticamente no fluxo.
-- Margem, economia vs. lista e cadência ficam visíveis.
-
-**Importante:** todos os clientes, SKUs, preços, custos, descontos, CNPJs e valores são fictícios/anonimizados.
+Todos os dados são fictícios e anonimizados.
