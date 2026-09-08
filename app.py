@@ -1,339 +1,145 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
 
-st.set_page_config(page_title='Inside Sales Smart Hub V7', page_icon='⚡', layout='wide')
+st.set_page_config(page_title="Inside Sales Smart Hub V9",page_icon="⚡",layout="wide")
+st.markdown("""<style>
+.block-container{padding-top:1rem;max-width:1550px}.hero{background:linear-gradient(120deg,#071b33,#0d74c7);padding:24px 28px;border-radius:20px;color:white;margin-bottom:16px}
+.hero h1{margin:0}.pill{display:inline-block;background:#ffffff22;padding:5px 9px;border-radius:20px;margin:8px 4px 0 0}
+[data-testid="stMetric"]{border:1px solid #8aa0b833;padding:10px;border-radius:13px}.box{border-left:5px solid #0d74c7;background:#0d74c711;padding:14px;border-radius:9px}
+.agent{border-left:5px solid #6f42c1;background:#6f42c111;padding:14px;border-radius:9px}
+</style>""",unsafe_allow_html=True)
 
-st.markdown('''
-<style>
-.block-container{padding-top:1.2rem;padding-bottom:2rem;max-width:1500px}
-.hero{background:linear-gradient(120deg,#071b33 0%,#0b4f8a 58%,#0d74c7 100%);padding:28px 30px;border-radius:20px;color:white;margin-bottom:18px}
-.hero h1{margin:0;font-size:38px;font-weight:700}.hero p{margin:8px 0 0;opacity:.92;font-size:17px}
-.pill{display:inline-block;background:rgba(255,255,255,.14);padding:6px 10px;border-radius:999px;margin:12px 6px 0 0;font-size:12px}
-.card{border:1px solid rgba(120,140,160,.22);border-radius:16px;padding:16px 18px;background:rgba(255,255,255,.03);min-height:130px}
-.card h3{margin:0 0 8px;font-size:18px}.muted{opacity:.72;font-size:13px}.big{font-size:26px;font-weight:700}
-[data-testid="stMetric"]{border:1px solid rgba(120,140,160,.18);padding:12px 14px;border-radius:14px}
-[data-testid="stSidebar"] [data-testid="stMetricValue"]{font-size:24px!important;white-space:normal!important;line-height:1.15!important}
-[data-testid="stSidebar"] [data-testid="stMetricLabel"]{font-size:13px!important}
-.step-ok{border:1px solid #b7e4c7;background:#f1fbf4;border-radius:12px;padding:12px 14px;margin:7px 0}
-.reco{border-left:5px solid #0d74c7;background:rgba(13,116,199,.07);padding:16px 18px;border-radius:10px;margin-top:14px}
-.scorebox{font-size:30px;font-weight:800;color:#0b4f8a}
-</style>
-''', unsafe_allow_html=True)
+META=4_000_000
+STAGES=["Identify","Develop","Propose","Order Promised","Lost Closed"]
+def brl(v): return f"R$ {v:,.0f}".replace(",","X").replace(".",",").replace("X",".")
+def pm(v): return f"{v/META*100:.1f}%".replace(".",",")
 
-# ---------- DEMO DATA: 100% fictitious / anonymized ----------
-CUSTOMERS = pd.DataFrame([
-    ['Hospital Horizonte','Ana',1180000,1320000,890000,18,620000,175000,22,'Sudeste'],
-    ['Rede Vida Nova','Bruno',940000,1010000,715000,27,520000,98000,39,'Sudeste'],
-    ['Instituto Aurora','Carla',560000,625000,430000,9,260000,62000,71,'Sul'],
-    ['Hospital Monte Azul','Ana',780000,735000,515000,14,350000,48000,93,'Nordeste'],
-    ['Clínica Integra','Bruno',430000,510000,365000,7,190000,78000,31,'Centro-Oeste'],
-    ['Grupo Santa Luz','Carla',1260000,1430000,960000,31,780000,210000,16,'Sudeste'],
-    ['Hospital Nova Esperança','Ana',690000,755000,505000,12,310000,92000,58,'Sul'],
-    ['Centro Médico Solaris','Bruno',350000,390000,250000,6,150000,18000,127,'Nordeste'],
-    ['Rede Plena Saúde','Carla',870000,930000,640000,20,440000,135000,44,'Sudeste'],
-    ['Hospital Parque Central','Ana',610000,675000,455000,11,285000,76000,36,'Centro-Oeste'],
-], columns=['Cliente','Vendedor','Fat_2024','Fat_2025','Fat_2026_YTD','Base_Instalada','Limite_Credito','Credito_Livre','Dias_Ultima_Compra','Regiao'])
+# Dados demonstrativos 100% fictícios/anônimos
+BASE=[
+[91001,"Hospital Horizonte","Ana",186000,"Develop",92,28,24,20,12,8,"Altíssima","Kit Preventivo Alpha — 10 un.","Sensor de Fluxo Pro — 2 un.","Vendedor","FUP hoje"],
+[91002,"Rede Vida Nova","Bruno",74000,"Propose",78,22,20,18,10,8,"Alta","Sensor de Fluxo Pro — 3 un.","Contrato Preventivo 12M — 1 un.","Vendedor","FUP D+2"],
+[91003,"Instituto Aurora","Carla",29500,"Propose",84,25,22,18,11,8,"Altíssima","Filtro Performance — 10 un.","Kit Preventivo Alpha — 1 un.","Vendedor","FUP vencido"],
+[91004,"Hospital Monte Azul","Ana",128000,"Identify",66,24,14,10,10,8,"Alta","Módulo Eletrônico X — 3 un.","Contrato Preventivo 12M — 1 un.","Vendedor","Validar crédito"],
+[91005,"Clínica Integra","Bruno",68000,"Develop",76,21,21,16,10,8,"Alta","Bateria Backup Plus — 5 un.","Upgrade Performance — 1 un.","Vendedor","Contato realizado"],
+[91006,"Grupo Santa Luz","Carla",215000,"Propose",82,30,19,17,9,7,"Altíssima","Contrato Preventivo 12M — 1 un.","Upgrade Performance — 1 un.","Vendedor","Negociação"],
+[91007,"Hospital Nova Esperança","Ana",99000,"Propose",88,26,23,20,12,7,"Altíssima","Kit Preventivo Alpha — 6 un.","Sensor de Fluxo Pro — 2 un.","Vendedor","FUP vencido"],
+[91008,"Centro Médico Solaris","Bruno",47000,"Identify",54,17,12,5,11,9,"Normal","Válvula Inspiratória — 3 un.","Kit Preventivo Alpha — 1 un.","Vendedor","Aguardar estoque"],
+[91009,"Rede Plena Saúde","Carla",83000,"Develop",79,23,22,18,9,7,"Alta","Sensor de Fluxo Pro — 4 un.","Contrato Preventivo 12M — 1 un.","Vendedor","Contato realizado"],
+[91010,"Hospital Parque Central","Ana",152000,"Propose",73,27,17,13,9,7,"Alta","Upgrade Performance — 2 un.","Contrato Preventivo 12M — 1 un.","Vendedor","FUP D+5"],
+[91011,"Clínica Vale Verde","Bruno",7800,"Identify",48,8,13,15,7,5,"Normal","Filtro Performance — 3 un.","Kit Preventivo Alpha — 1 un.","Agente Autônomo","Primeiro contato automático"],
+[91012,"Centro Diagnóstico Orion","Carla",9400,"Develop",57,10,16,15,9,7,"Normal","Bateria Backup Plus — 1 un.","Filtro Performance — 2 un.","Agente Autônomo","WhatsApp respondido"],
+[91013,"Hospital Bela Vista","Ana",4600,"Propose",52,7,15,17,8,5,"Normal","Filtro Performance — 2 un.","Kit Preventivo Alpha — 1 un.","Agente Autônomo","FUP D+2"],
+[91014,"Rede Saúde Prime","Bruno",56000,"Order Promised",86,25,22,20,11,8,"Altíssima","Kit Preventivo Alpha — 3 un.","—","Vendedor","OC validada"],
+[91015,"Instituto Lumina","Carla",33000,"Lost Closed",61,16,18,12,8,7,"Alta","Sensor de Fluxo Pro — 2 un.","—","Vendedor","Perdida — preço"]]
+COL=["OPP","Cliente","Vendedor","Valor","Status SF","Score","Receita","Conversão","Estoque","SLA","Crédito","Prioridade","Itens em Cotação","Cross Sell / Upsell","Responsável","Próxima Ação"]
+if "opps" not in st.session_state: st.session_state.opps=pd.DataFrame(BASE,columns=COL)
+opps=st.session_state.opps
 
-STOCK = pd.DataFrame([
-    ['DMO-1001','Kit Preventivo Alpha','Peças',46,12,0,16400,.18,7350],
-    ['DMO-1002','Sensor de Fluxo Pro','Sensores',18,24,4,23800,.15,10150],
-    ['DMO-1003','Bateria Backup Plus','Acessórios',7,16,0,14200,.12,6100],
-    ['DMO-1004','Módulo Eletrônico X','Módulos',3,9,2,39600,.10,18800],
-    ['DMO-1005','Filtro Performance','Consumíveis',124,40,0,3450,.20,1350],
-    ['DMO-1006','Válvula Inspiratória','Peças',0,18,6,17600,.16,7700],
-    ['DMO-1007','Contrato Preventivo 12M','Serviços',999,0,0,48500,.08,21400],
-    ['DMO-1008','Upgrade Performance','Upgrades',999,0,0,72800,.10,32600],
-], columns=['SKU','Descricao','Familia','Estoque_Livre','Transito','Qualidade','Preco_Lista','Desconto_Max','COGS_Demo'])
-STOCK['Preco_Demo']=(STOCK['Preco_Lista']*(1-STOCK['Desconto_Max'])).round(2)
+growth=pd.DataFrame([
+["Hospital Horizonte","Peça","Kit Preventivo Alpha",3,49200,"Manter 3 un. em estoque para reduzir indisponibilidade e evitar perdas com equipamento parado."],
+["Rede Vida Nova","Serviço","Contrato Preventivo 12M",1,44600,"Aumentar disponibilidade da base e previsibilidade da manutenção, reduzindo paradas não planejadas."],
+["Instituto Aurora","Peça","Sensor de Fluxo Pro",2,40460,"Criar estoque preventivo de 2 un. para reduzir tempo de resposta e risco de equipamento parado."],
+["Clínica Integra","Peça","Bateria Backup Plus",2,24992,"Antecipar reposição e reduzir impacto operacional de indisponibilidade."],
+["Grupo Santa Luz","Serviço","Contrato Preventivo 12M",1,44600,"Transformar manutenção reativa em cobertura planejada e aumentar previsibilidade operacional."],
+["Hospital Nova Esperança","Peça","Kit Preventivo Alpha",2,32800,"Manter estoque local para reduzir espera por nova compra e proteger disponibilidade."],
+],columns=["Cliente","Tipo","Item sugerido","Qtd. sugerida","Valor potencial","Ação sugerida"])
 
-BASE = pd.DataFrame([
-    ['Hospital Horizonte','Equipamento A',10,2019,14,'DMO-1001'],['Hospital Horizonte','Equipamento B',8,2021,9,'DMO-1002'],
-    ['Rede Vida Nova','Equipamento A',16,2018,17,'DMO-1001'],['Rede Vida Nova','Equipamento C',11,2020,13,'DMO-1003'],
-    ['Instituto Aurora','Equipamento B',9,2021,15,'DMO-1002'],['Hospital Monte Azul','Equipamento A',14,2018,19,'DMO-1001'],
-    ['Clínica Integra','Equipamento C',7,2022,8,'DMO-1003'],['Grupo Santa Luz','Equipamento A',19,2017,18,'DMO-1001'],
-    ['Grupo Santa Luz','Equipamento C',12,2020,14,'DMO-1003'],['Hospital Nova Esperança','Equipamento B',12,2019,16,'DMO-1002'],
-    ['Centro Médico Solaris','Equipamento A',6,2017,21,'DMO-1001'],['Rede Plena Saúde','Equipamento A',13,2019,12,'DMO-1001'],
-    ['Rede Plena Saúde','Equipamento B',7,2021,11,'DMO-1002'],['Hospital Parque Central','Equipamento C',11,2020,15,'DMO-1003'],
-], columns=['Cliente','Equipamento','Qtd','Ano_Instalacao','Meses_Desde_Compra','SKU_Recorrente'])
+team=pd.DataFrame([["Ana",87,565600,5,31.5,94,82,126000,78],["Bruno",79,253800,5,27.8,88,76,82000,61],["Carla",84,370900,5,29.4,91,85,104000,69]],
+columns=["Vendedor","Performance","Pipeline","OPPs Ativas","Conversão %","SLA %","Adoção Growth %","Receita Incremental","Índice de Carga Comercial"])
 
-QUOTES = pd.DataFrame([
-    [81001,'Hospital Horizonte','DMO-1001','Kit Preventivo Alpha','Ana',186000,.92,1.1,'Aprovado','Novo'],
-    [81002,'Rede Vida Nova','DMO-1002','Sensor de Fluxo Pro','Bruno',74000,.78,3.2,'Aprovado','Follow-up D+2'],
-    [81003,'Instituto Aurora','DMO-1005','Filtro Performance','Carla',29500,.84,5.8,'Aprovado','Follow-up vencido'],
-    [81004,'Hospital Monte Azul','DMO-1004','Módulo Eletrônico X','Ana',128000,.64,4.7,'Revisar','Crédito'],
-    [81005,'Clínica Integra','DMO-1003','Bateria Backup Plus','Bruno',68000,.88,1.6,'Aprovado','Novo'],
-    [81006,'Grupo Santa Luz','DMO-1007','Contrato Preventivo 12M','Carla',215000,.72,2.4,'Aprovado','Negociação'],
-    [81007,'Hospital Nova Esperança','DMO-1001','Kit Preventivo Alpha','Ana',99000,.86,6.2,'Aprovado','Follow-up vencido'],
-    [81008,'Centro Médico Solaris','DMO-1006','Válvula Inspiratória','Bruno',47000,.55,7.1,'Bloqueado','Estoque'],
-    [81009,'Rede Plena Saúde','DMO-1002','Sensor de Fluxo Pro','Carla',83000,.81,2.0,'Aprovado','Novo'],
-    [81010,'Hospital Parque Central','DMO-1008','Upgrade Performance','Ana',152000,.69,3.8,'Aprovado','Proposta'],
-], columns=['OPP','Cliente','SKU','Produto','Vendedor','Valor','Prob','SLA_h','Credito','Etapa'])
+def summary():
+    return pd.DataFrame([[s,len(opps[opps["Status SF"]==s]),opps.loc[opps["Status SF"]==s,"Valor"].sum()] for s in STAGES],columns=["Status Salesforce","Qtd. OPPs","Valor"])
 
-def brl(v): return f"R$ {v:,.0f}".replace(',', 'X').replace('.', ',').replace('X','.')
+def message(r):
+    if r["Tipo"]=="Peça":
+        return f"Olá, [Nome]. Temos o {r['Item sugerido']} disponível e identificamos que pode fazer sentido manter {int(r['Qtd. sugerida'])} un. em estoque, reduzindo o risco de parada e possíveis perdas enquanto uma nova peça é adquirida e entregue. Posso avaliar essa necessidade com você?"
+    return "Olá, [Nome]. Pela sua base instalada, identificamos uma oportunidade de contrato de serviço para aumentar a disponibilidade dos equipamentos, reduzir paradas não planejadas e trazer maior previsibilidade à manutenção. Posso te apresentar rapidamente essa possibilidade?"
 
-def brl2(v): return f"R$ {v:,.2f}".replace(',', 'X').replace('.', ',').replace('X','.')
+nav=["1. Central de Decisão","2. Performance Comercial do Time","3. Smart Workflow","4. Fila Inteligente","5. Growth Engine","6. FUP","7. Account 360","8. Arquitetura","9. Modo Apresentação"]
+page=st.sidebar.radio("Modo Navegação",nav)
+st.sidebar.markdown("### Pipeline Salesforce")
+for _,r in summary().iterrows():
+    st.sidebar.markdown(f"**{r['Status Salesforce']}**  \n{int(r['Qtd. OPPs'])} OPPs • {brl(r['Valor'])} • {pm(r['Valor'])}")
+st.sidebar.caption("Meta demonstrativa: R$ 4.000.000")
 
-def growth_for_customer(cliente, requested_sku):
-    base_cli=BASE[BASE.Cliente==cliente]
-    candidates=[]
-    for _, row in base_cli.iterrows():
-        if row.SKU_Recorrente != requested_sku and row.Meses_Desde_Compra >= 12:
-            prod=STOCK[STOCK.SKU==row.SKU_Recorrente]
-            if len(prod) and int(prod.iloc[0].Estoque_Livre)>0:
-                p=prod.iloc[0]
-                candidates.append({
-                    'tipo':'CROSS-SELL','sku':p.SKU,'produto':p.Descricao,
-                    'motivo':f"Base instalada com {int(row.Qtd)} equipamentos e recorrência há {int(row.Meses_Desde_Compra)} meses.",
-                    'score':92,'qtd':max(1,min(5,int(round(row.Qtd*.25))))
-                })
-    upsell_map={'DMO-1001':'DMO-1007','DMO-1002':'DMO-1008','DMO-1003':'DMO-1008','DMO-1005':'DMO-1001'}
-    upsku=upsell_map.get(requested_sku)
-    if upsku:
-        p=STOCK[STOCK.SKU==upsku].iloc[0]
-        candidates.append({'tipo':'UPSELL','sku':p.SKU,'produto':p.Descricao,
-                           'motivo':'Alternativa de maior valor associada ao perfil demonstrativo da conta e à base instalada.',
-                           'score':78,'qtd':1})
-    if not candidates:
-        available=STOCK[(STOCK.SKU!=requested_sku)&(STOCK.Estoque_Livre>0)].copy()
-        p=available.sort_values(['Preco_Lista','Estoque_Livre'],ascending=[False,False]).iloc[0]
-        candidates.append({'tipo':'CROSS-SELL','sku':p.SKU,'produto':p.Descricao,
-                           'motivo':'Produto complementar identificado pelo perfil demonstrativo da conta.',
-                           'score':65,'qtd':1})
-    return sorted(candidates,key=lambda x:x['score'],reverse=True)[0]
+st.markdown("""<div class=hero><h1>Inside Sales Smart Hub V9</h1><p>From Reactive Requests to Intelligent Revenue Growth</p>
+<span class=pill>Workflow</span><span class=pill>Priority</span><span class=pill>Growth</span><span class=pill>Autonomous Agent</span><span class=pill>Salesforce</span></div>""",unsafe_allow_html=True)
 
-def generate_proposal_pdf(cliente, vendedor, items, proposta_no):
-    buf=BytesIO()
-    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=15*mm,bottomMargin=15*mm)
-    styles=getSampleStyleSheet()
-    title=ParagraphStyle('title2',parent=styles['Heading1'],fontName='Helvetica-Bold',fontSize=18,textColor=colors.HexColor('#0877BE'),alignment=TA_CENTER,spaceAfter=8)
-    h=ParagraphStyle('h',parent=styles['Heading2'],fontName='Helvetica-Bold',fontSize=10,textColor=colors.HexColor('#0877BE'),spaceBefore=8,spaceAfter=5)
-    body=ParagraphStyle('body2',parent=styles['BodyText'],fontSize=9,leading=12)
-    small=ParagraphStyle('small',parent=styles['BodyText'],fontSize=7.5,leading=10,textColor=colors.HexColor('#555555'))
-    story=[]
-    story.append(Paragraph('SMART HUB - PROPOSTA COMERCIAL DEMONSTRATIVA',title))
-    story.append(Paragraph('<b>DADOS 100% FICTÍCIOS / NÃO UTILIZAR COM CLIENTES</b>',ParagraphStyle('warn',parent=body,textColor=colors.HexColor('#B42318'),alignment=TA_CENTER)))
-    story.append(Spacer(1,6*mm))
-    date=datetime.now().strftime('%d/%m/%Y')
-    story.append(Paragraph(f'<b>Proposta Nº:</b> {proposta_no}<br/><b>Data:</b> {date}<br/><b>CLIENTE:</b> {cliente}<br/><b>CNPJ:</b> 00.000.000/0000-00<br/><b>ENDEREÇO:</b> Endereço demonstrativo - São Paulo/SP',body))
-    story.append(Spacer(1,5*mm))
-    total=sum(i['qtd']*i['unit'] for i in items)
-    desc=' + '.join([f"{i['produto']} - {i['qtd']} unidade(s)" for i in items])
-    box=Table([[Paragraph(f'<b>{desc}</b>',body)],[Paragraph(f'<b>VALOR TOTAL DA VENDA: {brl2(total)}</b>',body)]],colWidths=[170*mm])
-    box.setStyle(TableStyle([('BOX',(0,0),(-1,-1),1.5,colors.HexColor('#245A7D')),('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),9),('BOTTOMPADDING',(0,0),(-1,-1),9)]))
-    story.append(box)
-    story.append(Spacer(1,5*mm))
-    story.append(Paragraph('Temos o prazer de encaminhar esta proposta demonstrativa. As condições comerciais foram calculadas automaticamente pelo Smart Workflow com política fictícia de lista de preços e desconto.',body))
-    story.append(Spacer(1,4*mm))
-    story.append(Paragraph(f'Atenciosamente,<br/><b>{vendedor}</b><br/>Inside Sales - Demonstração',body))
-    story.append(PageBreak())
-    story.append(Paragraph('DESCRIÇÃO COMPLETA DOS ITENS - DEMONSTRAÇÃO',title))
-    data=[['Código','Descrição','Qtde','Preço Lista','Desconto','Valor Unit.','Valor Total']]
-    for i in items:
-        data.append([i['sku'],i['produto'],str(i['qtd']),brl2(i['list_price']),f"{i['discount']*100:.0f}%",brl2(i['unit']),brl2(i['unit']*i['qtd'])])
-    data.append(['','','','','','TOTAL',brl2(total)])
-    tbl=Table(data,colWidths=[20*mm,48*mm,13*mm,24*mm,18*mm,24*mm,25*mm],repeatRows=1)
-    tbl.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#EAF5FB')),('TEXTCOLOR',(0,0),(-1,0),colors.HexColor('#123A56')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTNAME',(-2,-1),(-1,-1),'Helvetica-Bold'),('GRID',(0,0),(-1,-1),.5,colors.HexColor('#9DB6C6')),('FONTSIZE',(0,0),(-1,-1),7.5),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(2,1),(-1,-1),'RIGHT'),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]))
-    story.append(tbl)
-    story.append(Paragraph('CONDIÇÃO DE PAGAMENTO',h))
-    story.append(Paragraph(f'Pagamento demonstrativo em 01 parcela em até 30 dias do faturamento. Valor total: <b>{brl2(total)}</b>. Condição sujeita a validação de crédito na operação real.',body))
-    story.append(Paragraph('PRAZO DE ENTREGA',h))
-    story.append(Paragraph('Disponibilidade demonstrativa validada no Smart Workflow. Na operação real, o prazo deve ser confirmado no ato do pedido.',body))
-    story.append(Paragraph('VALIDADE DO PREÇO E DA PROPOSTA',h))
-    story.append(Paragraph('30 dias corridos a partir da data de emissão, exclusivamente para fins de demonstração do Business Case.',body))
-    story.append(Paragraph('OBSERVAÇÕES',h))
-    story.append(Paragraph('Valores, clientes, produtos, descontos, CNPJ e demais informações são fictícios e anonimizados. A automação de pricing deve respeitar alçadas e governança comercial reais antes de qualquer uso produtivo.',small))
-    doc.build(story)
-    return buf.getvalue()
+if page.startswith("1."):
+    st.subheader("Central de Decisão")
+    x=opps[~opps["Status SF"].isin(["Order Promised","Lost Closed"])]
+    a,b,c,d=st.columns(4); a.metric("Pipeline",brl(x.Valor.sum()),f"{len(x)} OPPs"); b.metric("Cross Sell / Upsell",brl(growth["Valor potencial"].sum()),f"{len(growth)} sinais"); c.metric("Eficiência Comercial","91%","SLA + FUP"); d.metric("Meta",brl(META),pm(x.Valor.sum())+" pipeline")
+    st.markdown("#### Funil Salesforce × Meta")
+    s=summary(); s["% Meta"]=s.Valor.map(pm); s["Valor"]=s.Valor.map(brl); st.dataframe(s,use_container_width=True,hide_index=True)
+    st.markdown("#### Prioridades Comerciais")
+    v=x.sort_values("Score",ascending=False)[["Prioridade","Cliente","Score","Valor","Status SF","Responsável","Próxima Ação"]].copy(); v.Valor=v.Valor.map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
 
-def enrich(q):
-    q=q.merge(STOCK[['SKU','Estoque_Livre','Transito']],on='SKU',how='left')
-    q['S_Receita']=np.clip(q['Valor']/180000*100,10,100)
-    q['S_Conversao']=q['Prob']*100
-    q['S_Estoque']=np.where(q['Estoque_Livre']>0,np.clip(q['Estoque_Livre']*8,25,100),5)
-    q['S_SLA']=np.clip(4/np.maximum(q['SLA_h'],.2)*100,10,100)
-    q['S_Credito']=q['Credito'].map({'Aprovado':100,'Revisar':45,'Bloqueado':5}).fillna(40)
-    q['Score']=(q.S_Receita*.30+q.S_Conversao*.25+q.S_Estoque*.20+q.S_SLA*.15+q.S_Credito*.10).round().astype(int)
-    q['Prioridade']=np.select([q.Score>=80,q.Score>=65],['P1 • Atacar agora','P2 • Alta'],default='P3 • Normal')
-    return q.sort_values(['Score','Valor'],ascending=False)
+elif page.startswith("2."):
+    st.subheader("Performance Comercial do Time")
+    t=team.copy(); t.Pipeline=t.Pipeline.map(brl); t["Receita Incremental"]=t["Receita Incremental"].map(brl); st.dataframe(t,use_container_width=True,hide_index=True)
+    a=opps[opps.Responsável=="Agente Autônomo"]; c1,c2,c3=st.columns(3); c1.metric("Pipeline Agente",brl(a.Valor.sum()),f"{len(a)} OPPs"); c2.metric("Capacidade liberada","18 h/mês","demo"); c3.metric("Handoff","Menor carga","Índice de Carga Comercial")
+    st.info("Performance Comercial e Índice de Carga Comercial são métricas distintas. Handoff do agente vai ao vendedor com menor carga.")
 
-Q=enrich(QUOTES.copy())
+elif page.startswith("3."):
+    st.subheader("Smart Workflow")
+    st.markdown("Chamado / e-mail / WhatsApp → cliente identificado → **OPP Salesforce criada automaticamente em Identify** → enriquecimento → score → prioridade → responsável.")
+    v=opps[["OPP","Prioridade","Cliente","Score","Status SF","Itens em Cotação","Valor","Cross Sell / Upsell","Responsável","Próxima Ação"]].copy(); v.Valor=v.Valor.map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
+    o=st.selectbox("Abrir oportunidade",opps.OPP,format_func=lambda z:f"OPP {z} — {opps.loc[opps.OPP==z,'Cliente'].iloc[0]}"); r=opps[opps.OPP==o].iloc[0]
+    c1,c2,c3,c4=st.columns(4); c1.metric("Score",r.Score,r.Prioridade); c2.metric("Valor",brl(r.Valor)); c3.metric("Salesforce",r["Status SF"]); c4.metric("Responsável",r.Responsável)
+    st.markdown(f"<div class=box><b>Recomendação da IA</b><br>{r['Próxima Ação']}<br>Itens: {r['Itens em Cotação']}<br>Growth: {r['Cross Sell / Upsell']}</div>",unsafe_allow_html=True)
+    ns=st.selectbox("Atualizar status Salesforce",STAGES,index=STAGES.index(r["Status SF"]))
+    if st.button("Salvar atualização"): st.session_state.opps.loc[st.session_state.opps.OPP==o,"Status SF"]=ns; st.rerun()
+    st.caption("PDF comercial da V9: cliente não vê List Price nem desconto; oportunidade adicional permanece separada como OPCIONAL. Gerar PDF não muda estágio; Propose somente após envio.")
 
-def growth_engine():
-    g=BASE.merge(CUSTOMERS[['Cliente','Vendedor','Credito_Livre','Dias_Ultima_Compra','Fat_2025','Fat_2026_YTD']],on='Cliente',how='left')
-    g=g.merge(STOCK[['SKU','Descricao','Estoque_Livre','Preco_Demo']],left_on='SKU_Recorrente',right_on='SKU',how='left')
-    g['Idade_Parque']=2026-g['Ano_Instalacao']
-    g['Growth_Score']=((g.Meses_Desde_Compra>=12)*35+(g.Idade_Parque>=5)*25+(g.Credito_Livre>30000)*15+(g.Estoque_Livre>0)*15+(g.Dias_Ultima_Compra>45)*10).astype(int)
-    g['Potencial_Demo']=(g.Qtd*np.minimum(g.Preco_Demo,11000)*.72).round(-2)
-    g['Acao_Sugerida']=np.where(g.Meses_Desde_Compra>=12,'Reativar + oferecer item recorrente','Avaliar cross-sell')
-    return g.sort_values(['Growth_Score','Potencial_Demo'],ascending=False)
-G=growth_engine()
-SF_STAGES=['Identify','Develop','Propose','Order Promised','Lost Closed']
+elif page.startswith("4."):
+    st.subheader("Fila Inteligente — Smart Priority")
+    q=opps[["Cliente","OPP","Prioridade","Score","Receita","Conversão","Estoque","SLA","Crédito"]].sort_values("Score",ascending=False).copy()
+    for c,m in [("Receita",30),("Conversão",25),("Estoque",20),("SLA",15),("Crédito",10)]: q[c]=q[c].astype(str)+f"/{m}"
+    q=q.rename(columns={"Score":"Score Total"}); st.dataframe(q,use_container_width=True,hide_index=True)
+    st.info("Referência — Receita 30 | Conversão 25 | Estoque 20 | SLA 15 | Crédito 10. Altíssima ≥80 | Alta 60–79 | Normal <60.")
+    st.markdown("**Fluxo reativo:** Normal + até R$10 mil → Agente Autônomo. Normal > R$10 mil → vendedor. Alta/Altíssima → vendedor.")
 
-def build_v8_queue():
-    w=Q.copy().reset_index(drop=True)
-    w['Status SF']=['Identify','Propose','Propose','Develop','Identify','Develop','Propose','Propose','Identify','Propose']
-    w['Próxima Ação']=['Qualificar demanda','Follow-up D+2','Follow-up vencido','Validar crédito','Qualificar demanda','Preparar proposta','Follow-up D+10','Validar disponibilidade','Qualificar demanda','Aguardar retorno']
-    w['Incluir']=False
-    w['Gerar proposta']=False
-    desc=[]; vals=[]; types=[]; skus=[]; qtds=[]
-    for _,r in w.iterrows():
-        g=growth_for_customer(r.Cliente,r.SKU)
-        p=STOCK[STOCK.SKU==g['sku']].iloc[0]
-        v=float(p.Preco_Demo*g['qtd'])
-        desc.append(f"{g['tipo']}: {g['produto']} • {g['qtd']} un. • +{brl(v)}")
-        vals.append(v); types.append(g['tipo']); skus.append(g['sku']); qtds.append(g['qtd'])
-    w['Cross Sell / Upsell']=desc; w['Growth_Value']=vals; w['Growth_Type']=types; w['Growth_SKU']=skus; w['Growth_Qtd']=qtds
-    return w
+elif page.startswith("5."):
+    st.subheader("Growth Engine")
+    st.markdown("O Growth **levanta demanda antes de gerar proposta**: item + quantidade + potencial interno + argumento de valor.")
+    g=growth.copy(); g["Valor potencial"]=g["Valor potencial"].map(brl); st.dataframe(g,use_container_width=True,hide_index=True)
+    i=st.selectbox("Selecionar sinal",range(len(growth)),format_func=lambda z:f"{growth.iloc[z].Cliente} — {growth.iloc[z]['Item sugerido']} — {int(growth.iloc[z]['Qtd. sugerida'])} un."); r=growth.iloc[i]
+    st.text_area("Texto inicial — e-mail / WhatsApp",message(r),height=140)
+    st.markdown("<div class=agent><b>Agente Autônomo no Growth</b><br>Pode realizar abordagem proativa em sinais de até R$50.000. A primeira mensagem não mostra preço; vende disponibilidade, redução de risco e valor operacional.</div>",unsafe_allow_html=True)
+    st.markdown("**Sem interação:** sinal de Growth. **Cliente interagiu/demonstrou interesse:** cria OPP em Identify e entra no fluxo normal.")
 
-if 'v8_queue' not in st.session_state: st.session_state.v8_queue=build_v8_queue()
-if 'fup_comments' not in st.session_state:
-    st.session_state.fup_comments={81002:'Compras avaliando internamente.',81003:'Sem retorno após último contato.',81007:'Retornar com área técnica.',81008:'Aguardando disponibilidade.',81010:'Proposta em avaliação.'}
-W=st.session_state.v8_queue
+elif page.startswith("6."):
+    st.subheader("FUP")
+    st.markdown("Após proposta enviada: **D+2 → D+5 → D+10 → a cada 5 dias até fechamento**.")
+    f=opps[opps["Status SF"].isin(["Develop","Propose"])].copy(); f["Dias aguardando resposta"]=[2,5,11,7,3,16,4,9][:len(f)]; f["Próximo FUP"]=f["Dias aguardando resposta"].apply(lambda d:"Vencido" if d>10 else ("Hoje" if d in [2,5,10] else "Programado")); f["Comentários"]=""
+    c1,c2,c3=st.columns(3); c1.metric("FUP hoje",(f["Próximo FUP"]=="Hoje").sum()); c2.metric("Vencidos",(f["Próximo FUP"]=="Vencido").sum()); c3.metric("Valor aguardando",brl(f.Valor.sum()))
+    v=f[["OPP","Cliente","Valor","Dias aguardando resposta","Vendedor","Status SF","Próximo FUP","Comentários"]].copy(); v.Valor=v.Valor.map(brl); st.data_editor(v,use_container_width=True,hide_index=True)
+    st.caption("Order Promised e Lost Closed saem da fila ativa.")
 
-def gauge(name,score,pipeline,growth):
-    return f"<div class='card' style='text-align:center;min-height:230px'><h3>{name}</h3><div style='font-size:46px;font-weight:800;color:#0b4f8a'>{score}</div><div class='muted'>Índice de Performance / 100</div><progress value='{score}' max='100' style='width:90%;height:22px'></progress><p><b>Pipeline:</b> {brl(pipeline)}<br><b>Receita incremental:</b> {brl(growth)}</p></div>"
+elif page.startswith("7."):
+    st.subheader("Account 360"); cli=st.selectbox("Cliente",sorted(opps.Cliente.unique())); x=opps[opps.Cliente==cli]
+    a,b,c=st.columns(3); a.metric("Pipeline",brl(x.Valor.sum())); b.metric("OPPs",len(x)); c.metric("Maior Score",x.Score.max()); st.dataframe(x,use_container_width=True,hide_index=True)
+    if len(growth[growth.Cliente==cli]): st.markdown("#### Growth"); st.dataframe(growth[growth.Cliente==cli],use_container_width=True,hide_index=True)
 
-st.markdown("""<div class="hero"><h1>Inside Sales Smart Hub V8</h1><p>From Reactive Requests to Intelligent Revenue Growth</p><span class="pill">SMART WORKFLOW</span><span class="pill">SMART PRIORITY</span><span class="pill">SMART GROWTH</span><span class="pill">FOLLOW-UP</span></div>""",unsafe_allow_html=True)
-st.caption('MVP demonstrativo • Todos os dados exibidos são fictícios e anonimizados.')
+elif page.startswith("8."):
+    st.subheader("Arquitetura")
+    st.markdown("""**Entrada** chamado/e-mail/WhatsApp → **OPP Salesforce Identify** → enriquecimento → **Priority Score** → roteamento → execução humana/agente → **Develop** (contato efetivo) → **Propose** (proposta enviada) → aceite/OC → validações automáticas → **confirmação humana obrigatória** → **Order Promised** → Backoffice.  
+**Growth:** identifica demanda não solicitada → item + quantidade + argumento de valor → abordagem até R$50 mil → interação do cliente cria OPP em Identify.  
+**Governança:** exceção comercial, crédito, estoque ou pricing fora de política → handoff ao vendedor com menor Índice de Carga Comercial.""")
 
-page=st.sidebar.radio('Navegação',['Central de Decisão','Smart Workflow','Follow-up Comercial','Fila Inteligente','Account 360','Growth Engine','Performance Comercial do Time','Arquitetura & Automação','Modo Apresentação'])
-st.sidebar.markdown('---'); st.sidebar.metric('Operação','600 orçamentos/mês','≈ 30/dia útil'); st.sidebar.metric('Time','3 colaboradores'); st.sidebar.caption('Business Case • dados demonstrativos')
+else:
+    st.subheader("Modo Apresentação")
+    st.markdown("""### Inside Sales Smart Hub — From Reactive Requests to Intelligent Revenue Growth
+**1. Smart Workflow | Produtividade** — captura, Salesforce, SLA/FUP e automação controlada.  
+**2. Smart Priority | Conversão** — Receita + Conversão + Estoque + SLA + Crédito.  
+**3. Smart Growth | Receita Incremental** — identifica demanda antes do chamado, recomenda item/quantidade e aborda com venda de valor.  
 
-if page=='Central de Decisão':
-    st.subheader('Central de Decisão')
-    active=W[~W['Status SF'].isin(['Order Promised','Lost Closed'])]
-    p1=W[W.Score>=80]; stockrisk=W[W.Estoque_Livre<=3]
-    c1,c2,c3,c4=st.columns(4)
-    c1.metric('Pipeline',brl(active.Valor.sum()),f'{len(active)} oportunidades')
-    c2.metric('Cross Sell / Upsell',brl(active.Growth_Value.sum()),'potencial incremental')
-    c3.metric('Eficiência Comercial',f'{len(p1)} P1',brl(p1.Valor.sum()))
-    c4.metric('Receita em Risco',brl(stockrisk.Valor.sum()),'estoque / abastecimento')
-    st.markdown('### Prioridades Comerciais')
-    t=W[['OPP','Cliente','Vendedor','Valor','Score','Prioridade','Status SF','Próxima Ação']].head(6).copy(); t['Valor']=t.Valor.map(brl)
-    st.dataframe(t,use_container_width=True,hide_index=True)
-    st.markdown('### Alertas Executivos')
-    a,b,c=st.columns(3)
-    a.info(f"**Eficiência Comercial:** {len(W[W.SLA_h>4])} oportunidades requerem ação de cadência.")
-    b.warning(f"**Receita em Risco:** {len(stockrisk)} oportunidades apresentam restrição de estoque.")
-    c.success(f"**Potencial de Crescimento:** {len(W)} oportunidades avaliadas para Cross Sell / Upsell.")
-
-elif page=='Smart Workflow':
-    st.subheader('Smart Workflow — Fila Comercial Priorizada')
-    st.caption('O sistema prepara e prioriza. O vendedor decide e vende.')
-    show=W.copy(); show['Oportunidade']=show.Valor.map(brl)
-    cols=['Prioridade','Cliente','Score','Status SF','Oportunidade','Cross Sell / Upsell','Incluir','Próxima Ação','Gerar proposta']
-    edited=st.data_editor(show[cols],use_container_width=True,hide_index=True,key='v8_workflow',
-        column_config={
-            'Status SF':st.column_config.SelectboxColumn('Status SF',options=SF_STAGES,required=True),
-            'Incluir':st.column_config.CheckboxColumn('Incluir?'),
-            'Próxima Ação':st.column_config.TextColumn('Próxima Ação'),
-            'Gerar proposta':st.column_config.CheckboxColumn('Gerar proposta')},
-        disabled=['Prioridade','Cliente','Score','Oportunidade','Cross Sell / Upsell'])
-    for i in range(len(edited)):
-        W.at[i,'Status SF']=edited.at[i,'Status SF']; W.at[i,'Próxima Ação']=edited.at[i,'Próxima Ação']
-        W.at[i,'Incluir']=bool(edited.at[i,'Incluir']); W.at[i,'Gerar proposta']=bool(edited.at[i,'Gerar proposta'])
-    sel=W[W['Gerar proposta']]
-    if len(sel):
-        r=sel.iloc[0]; s=STOCK[STOCK.SKU==r.SKU].iloc[0]; qtd=max(1,int(round(r.Valor/s.Preco_Demo)))
-        items=[{'sku':s.SKU,'produto':s.Descricao,'qtd':qtd,'list_price':float(s.Preco_Lista),'discount':float(s.Desconto_Max),'unit':float(s.Preco_Demo)}]
-        if r.Incluir:
-            gp=STOCK[STOCK.SKU==r.Growth_SKU].iloc[0]
-            # V7 PDF receives the optional item; V8 screen makes its optional nature explicit.
-            items.append({'sku':gp.SKU,'produto':'OPCIONAL - '+gp.Descricao,'qtd':int(r.Growth_Qtd),'list_price':float(gp.Preco_Lista),'discount':float(gp.Desconto_Max),'unit':float(gp.Preco_Demo)})
-        no=f"DEMO-{datetime.now().strftime('%Y%m%d')}-{int(r.OPP)}"
-        st.markdown('### Proposta pronta para validação')
-        a,b,c=st.columns(3); a.metric('Demanda principal',brl(r.Valor)); b.metric('Adicional opcional',brl(r.Growth_Value) if r.Incluir else 'R$ 0'); c.metric('Status Salesforce',r['Status SF'])
-        st.download_button('📄 BAIXAR PROPOSTA AUTOMÁTICA',generate_proposal_pdf(r.Cliente,r.Vendedor,items,no),f'Proposta_{no}.pdf','application/pdf',type='primary')
-        st.info('Cross Sell / Upsell selecionado pelo vendedor é identificado como **OPCIONAL** na proposta.' if r.Incluir else 'Proposta somente com a demanda principal; recomendação de Growth permanece registrada.')
-    with st.expander('+ Nova solicitação'):
-        a,b,c=st.columns(3); cli=a.selectbox('Cliente',CUSTOMERS.Cliente.tolist()); sku=b.selectbox('SKU',STOCK.SKU.tolist()); qtd=c.number_input('Quantidade',1,100,2)
-        if st.button('Criar oportunidade'): st.success('Oportunidade demonstrativa criada em **Identify**.')
-
-elif page=='Follow-up Comercial':
-    st.subheader('Follow-up Comercial')
-    st.caption('Cadência: D+2 → D+5 → D+10 → depois a cada 5 dias até Order Promised ou Lost Closed.')
-    f=W[W['Status SF']=='Propose'].copy()
-    days={81002:2,81003:7,81007:12,81008:5,81010:10}
-    f['Dias aguardando resposta']=f.OPP.map(days).fillna(3).astype(int)
-    def nxt(d):
-        if d<=2:return 'D+2'
-        if d<=5:return 'D+5'
-        if d<=10:return 'D+10'
-        return f"D+{10+5*int(np.ceil((d-10)/5))}"
-    f['Próximo FUP']=f['Dias aguardando resposta'].map(nxt)
-    f['Comentários']=f.OPP.map(st.session_state.fup_comments).fillna('')
-    a,b,c,d=st.columns(4); a.metric('Follow-ups ativos',len(f)); b.metric('FUP ≥ D+5',len(f[f['Dias aguardando resposta']>=5])); c.metric('Valor aguardando resposta',brl(f.Valor.sum())); d.metric('Cadência','D+2 / D+5 / D+10','depois +5 dias')
-    f['Valor']=f.Valor.map(brl)
-    ed=st.data_editor(f[['OPP','Cliente','Valor','Dias aguardando resposta','Vendedor','Status SF','Próximo FUP','Comentários']],use_container_width=True,hide_index=True,
-        column_config={'Status SF':st.column_config.SelectboxColumn('Status SF',options=SF_STAGES),'Comentários':st.column_config.TextColumn('Comentários',width='large')},
-        disabled=['OPP','Cliente','Valor','Dias aguardando resposta','Vendedor','Próximo FUP'])
-    for _,r in ed.iterrows():
-        st.session_state.fup_comments[int(r.OPP)]=r['Comentários']
-        ix=W.index[W.OPP==r.OPP]
-        if len(ix): W.at[ix[0],'Status SF']=r['Status SF']
-
-elif page=='Fila Inteligente':
-    st.subheader('Smart Priority — priorização comercial')
-    a,b,c=st.columns(3); seller=a.selectbox('Vendedor',['Todos']+sorted(W.Vendedor.unique())); pri=b.selectbox('Prioridade',['Todas','P1','P2','P3']); sf=c.selectbox('Status Salesforce',['Todos']+SF_STAGES)
-    q=W.copy()
-    if seller!='Todos': q=q[q.Vendedor==seller]
-    if pri!='Todas': q=q[q.Prioridade.str.startswith(pri)]
-    if sf!='Todos': q=q[q['Status SF']==sf]
-    t=q[['OPP','Cliente','Produto','Vendedor','Valor','Score','Prioridade','Status SF','Próxima Ação']].copy(); t['Valor']=t.Valor.map(brl)
-    st.dataframe(t,use_container_width=True,hide_index=True)
-
-elif page=='Account 360':
-    st.subheader('Account 360')
-    cli=st.selectbox('Cliente',CUSTOMERS.Cliente.tolist()); a=CUSTOMERS[CUSTOMERS.Cliente==cli].iloc[0]
-    c1,c2,c3,c4=st.columns(4); c1.metric('Fat. 2025',brl(a.Fat_2025)); c2.metric('2026 YTD',brl(a.Fat_2026_YTD)); c3.metric('Base instalada',int(a.Base_Instalada)); c4.metric('Crédito livre',brl(a.Credito_Livre))
-    st.dataframe(BASE[BASE.Cliente==cli],use_container_width=True,hide_index=True)
-    q=W[W.Cliente==cli][['OPP','Produto','Valor','Score','Status SF','Próxima Ação']].copy(); q['Valor']=q.Valor.map(brl); st.dataframe(q,use_container_width=True,hide_index=True)
-
-elif page=='Growth Engine':
-    st.subheader('Smart Growth — receita incremental')
-    hi=G[G.Growth_Score>=70]; a,b,c=st.columns(3); a.metric('Sinais de alta aderência',len(hi)); b.metric('Potencial demonstrativo',brl(hi.Potencial_Demo.sum())); c.metric('Contas mapeadas',hi.Cliente.nunique())
-    gv=G[['Cliente','Vendedor','Equipamento','Meses_Desde_Compra','Descricao','Growth_Score','Potencial_Demo','Acao_Sugerida']].copy(); gv['Potencial_Demo']=gv.Potencial_Demo.map(brl); st.dataframe(gv,use_container_width=True,hide_index=True)
-
-elif page=='Performance Comercial do Time':
-    st.subheader('Performance Comercial do Time')
-    rows=[]
-    for seller in sorted(W.Vendedor.unique()):
-        s=W[W.Vendedor==seller]; adoption=int(round(s.Incluir.mean()*100)); conv=int(round(s.Prob.mean()*100)); score=int(round(conv*.35+s.Score.mean()*.35+max(50,adoption)*.30))
-        rows.append([seller,score,s.Valor.sum(),len(s),conv,s.SLA_h.mean(),adoption,s[s.Incluir].Growth_Value.sum()])
-    perf=pd.DataFrame(rows,columns=['Vendedor','Performance','Pipeline','OPPs Ativas','Conversão','SLA','Adoção Growth','Receita Incremental'])
-    cs=st.columns(3)
-    for c,(_,r) in zip(cs,perf.iterrows()): c.markdown(gauge(r.Vendedor,int(r.Performance),r.Pipeline,r['Receita Incremental']),unsafe_allow_html=True)
-    st.markdown('### Visão Executiva por Vendedor')
-    p=perf.copy(); p['Pipeline']=p.Pipeline.map(brl); p['Conversão']=p['Conversão'].astype(str)+'%'; p['SLA']=p.SLA.round(1).astype(str)+' h'; p['Adoção Growth']=p['Adoção Growth'].astype(str)+'%'; p['Receita Incremental']=p['Receita Incremental'].map(brl); st.dataframe(p,use_container_width=True,hide_index=True)
-    st.markdown('### Negociações por Vendedor')
-    seller=st.selectbox('Selecionar vendedor',sorted(W.Vendedor.unique()))
-    v=W[W.Vendedor==seller][['OPP','Cliente','Valor','Score','Status SF','Próxima Ação','Cross Sell / Upsell','Incluir']].copy(); v['Valor']=v.Valor.map(brl); v=v.rename(columns={'Incluir':'Growth trabalhado?'}); st.dataframe(v,use_container_width=True,hide_index=True)
-    st.markdown('### Insights de Performance & Coaching')
-    for _,r in perf.iterrows():
-        if r['Adoção Growth']<35: st.warning(f"{r.Vendedor}: coaching em Cross Sell / Upsell — adoção {int(r['Adoção Growth'])}%.")
-        elif r.SLA>4: st.info(f"{r.Vendedor}: revisar carga e cadência — SLA médio {r.SLA:.1f}h.")
-        else: st.success(f"{r.Vendedor}: execução equilibrada; manter cadência e ampliar receita incremental.")
-
-elif page=='Arquitetura & Automação':
-    st.subheader('Arquitetura proposta — Smart Hub + Salesforce')
-    st.markdown("**Salesforce:** Identify → Develop → Propose → Order Promised / Lost Closed.  \n**Smart Hub:** prepara, prioriza, recomenda, gera proposta e controla cadência.  \n**Governança:** Status SF e Próxima Ação são editáveis pelo vendedor.")
-    flow=pd.DataFrame([['Identify','Demanda recebida ou oportunidade criada'],['Develop','Oportunidade em andamento'],['Propose','Proposta enviada ao cliente'],['Order Promised','OC recebida'],['Lost Closed','Oportunidade perdida']],columns=['Status Salesforce','Gatilho'])
-    st.dataframe(flow,use_container_width=True,hide_index=True)
-    st.info('Gerar o PDF não muda sozinho o status para Propose; a etapa representa o envio efetivo ao cliente.')
-
-elif page=='Modo Apresentação':
-    st.subheader('Modo Apresentação — Business Case')
-    st.markdown("### Três soluções\n**1. Smart Workflow / Productivity** — preparação, Salesforce stages, proposta e Follow-up.  \n**2. Smart Priority / Conversion** — fila por impacto e próxima ação.  \n**3. Smart Growth / Incremental Revenue** — Cross Sell / Upsell antes da proposta e adoção por vendedor.")
-    agenda=pd.DataFrame([['0–3 min','Cenário'],['3–7 min','Smart Priority'],['7–11 min','Smart Workflow'],['11–14 min','Follow-up Comercial'],['14–17 min','Performance do Time'],['17–20 min','Plano 30 dias']],columns=['Tempo','Bloco'])
-    st.dataframe(agenda,use_container_width=True,hide_index=True)
-
-st.markdown('---'); st.caption('Inside Sales Smart Hub V8 • MVP demonstrativo • dados 100% fictícios e anonimizados')
+**Princípio:** automatizamos o volume e preservamos o vendedor para julgamento comercial e maior impacto.  
+**30 dias:** D1–5 baseline/SLA • D6–10 fila/scoring • D11–20 FUP/dashboard • D21–30 Growth + piloto do agente.""")
