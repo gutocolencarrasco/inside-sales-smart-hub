@@ -8,7 +8,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 
-st.set_page_config(page_title="Inside Sales Smart Hub V10", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Inside Sales Smart Hub V11", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------------------- Executive UI ----------------------------
 st.markdown("""<style>
@@ -61,7 +61,7 @@ COL=["OPP","Customer","Seller","Value","SF Stage","Score","Revenue","Conversion"
 if "opps" not in st.session_state: st.session_state.opps=pd.DataFrame(BASE,columns=COL)
 opps=st.session_state.opps
 opps["Priority"]=opps.Score.map(priority)
-opps["Owner"]=opps.apply(lambda r:"Agente Autônomo" if r.Priority=="Normal" and r.Value<=10000 else r.Seller,axis=1)
+opps["Owner"]=opps.apply(lambda r:"Filipe" if r.Priority=="Normal" and r.Value<=10000 else r.Seller,axis=1)
 
 GROWTH_BASE=[
 ["Hospital Horizonte","Ana","Part","Kit Preventivo Alpha",3,49200,"Protect uptime with local preventive stock","Identified"],
@@ -71,6 +71,7 @@ GROWTH_BASE=[
 ["Grupo Santa Luz","Carla","Service","Contrato Preventivo 12M",1,44600,"Move from reactive to planned maintenance","OPP Created"],
 ["Hospital Nova Esperança","Ana","Part","Kit Preventivo Alpha",2,32800,"Protect equipment availability with local stock","Approached"]]
 growth=pd.DataFrame(GROWTH_BASE,columns=["Customer","Seller","Type","Suggested Item","Qty","Growth Potential","Value Proposition","Growth Stage"])
+growth["Responsible"]=growth.apply(lambda r:"Filipe" if r["Growth Potential"]<=50000 and r["Growth Stage"]!="OPP Created" else r["Seller"],axis=1)
 
 team=pd.DataFrame([
 ["Ana",87,569600,5,31.5,94,82,126000,78,93,68],
@@ -89,13 +90,21 @@ def stage_cards(df):
     for c,s in zip(cols,STAGES):
         q=df[df["SF Stage"]==s]
         with c: st.markdown(f'<div class="stage"><span class="small">{s}</span><br><b>{len(q)}</b><br><span class="small">{brl(q.Value.sum())}</span></div>',unsafe_allow_html=True)
-def proposal_pdf(r):
-    b=BytesIO(); styles=getSampleStyleSheet(); doc=SimpleDocTemplate(b,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=18*mm,bottomMargin=18*mm)
-    story=[Paragraph("INSIDE SALES SMART HUB — COMMERCIAL PROPOSAL",styles['Title']),Spacer(1,6),Paragraph("DADOS 100% FICTÍCIOS / NÃO UTILIZAR COM CLIENTES",styles['Heading3']),Spacer(1,10),Paragraph(f"Customer: {r['Customer']} &nbsp;&nbsp; | &nbsp;&nbsp; Proposal date: {datetime.now().strftime('%d/%m/%Y')}",styles['BodyText']),Spacer(1,12)]
-    main=r['Items in Quote']; unit=max(float(r.Value),1); data=[["Código","Descrição","Quantidade","Valor Unitário","Valor Total"],["DEMO-001",main,"1",brl(unit),brl(unit)]]
-    t=Table(data,colWidths=[28*mm,75*mm,22*mm,30*mm,30*mm]); t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#063b6f')),('TEXTCOLOR',(0,0),(-1,0),colors.white),('GRID',(0,0),(-1,-1),.4,colors.HexColor('#d9e3ec')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),8),('VALIGN',(0,0),(-1,-1),'TOP'),('PADDING',(0,0),(-1,-1),6)])); story += [Paragraph("Itens solicitados pelo cliente",styles['Heading2']),t,Spacer(1,10),Paragraph(f"Valor principal: <b>{brl(r.Value)}</b>",styles['BodyText'])]
-    if r['Cross Sell / Up Sell']!='—': story += [Spacer(1,14),Paragraph("Oportunidade adicional — OPCIONAL",styles['Heading2']),Paragraph(r['Cross Sell / Up Sell'],styles['BodyText']),Paragraph("Valor adicional: a validar conforme quantidade e condição comercial.",styles['BodyText'])]
-    story += [Spacer(1,18),Paragraph("Validade demonstrativa: 30 dias. Condições sujeitas às aprovações comerciais aplicáveis.",styles['BodyText'])]
+def proposal_pdf(r, include_optional=True, revision=False):
+    b=BytesIO(); styles=getSampleStyleSheet(); doc=SimpleDocTemplate(b,pagesize=A4,rightMargin=16*mm,leftMargin=16*mm,topMargin=16*mm,bottomMargin=16*mm)
+    title="REVISED COMMERCIAL PROPOSAL" if revision else "COMMERCIAL PROPOSAL"
+    story=[Paragraph(f"INSIDE SALES SMART HUB — {title}",styles['Title']),Spacer(1,5),Paragraph("DADOS 100% FICTÍCIOS / NÃO UTILIZAR COM CLIENTES",styles['Heading3']),Spacer(1,8),Paragraph(f"Customer: {r['Customer']} &nbsp;&nbsp; | &nbsp;&nbsp; Proposal date: {datetime.now().strftime('%d/%m/%Y')} &nbsp;&nbsp; | &nbsp;&nbsp; OPP: DEMO-{int(r['OPP'])}",styles['BodyText']),Spacer(1,12)]
+    main=float(r.Value); optional=round(main*0.12,2) if r['Cross Sell / Up Sell']!='—' else 0
+    data=[["Código","Descrição","Quantidade","Valor Unitário","Valor Total"],["DEMO-001",r['Items in Quote'],"1",brl(main),brl(main)]]
+    if include_optional and optional>0:
+        data.append(["OPTIONAL",f"OPCIONAL — {r['Cross Sell / Up Sell']}","1",brl(optional),brl(optional)])
+    t=Table(data,colWidths=[26*mm,78*mm,20*mm,29*mm,29*mm]); t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#063b6f')),('TEXTCOLOR',(0,0),(-1,0),colors.white),('GRID',(0,0),(-1,-1),.45,colors.HexColor('#d9e3ec')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),8),('VALIGN',(0,0),(-1,-1),'TOP'),('PADDING',(0,0),(-1,-1),6)]))
+    if include_optional and optional>0:
+        t.setStyle(TableStyle([('BACKGROUND',(0,2),(-1,2),colors.HexColor('#fff6d8')),('TEXTCOLOR',(0,2),(-1,2),colors.HexColor('#7b5a00')),('FONTNAME',(0,2),(1,2),'Helvetica-Bold')]))
+    story += [Paragraph("Commercial Items",styles['Heading2']),t,Spacer(1,10),Paragraph(f"Main Proposal Value: <b>{brl(main)}</b>",styles['BodyText'])]
+    if include_optional and optional>0:
+        story += [Paragraph(f"Optional Items: <b>{brl(optional)}</b>",styles['BodyText']),Paragraph(f"Total if Optional Items are Accepted: <b>{brl(main+optional)}</b>",styles['BodyText'])]
+    story += [Spacer(1,14),Paragraph("Payment: demonstrative commercial condition. Delivery: subject to inventory validation.",styles['BodyText']),Paragraph("Proposal validity: 30 days. Warranty and specific conditions subject to applicable commercial governance.",styles['BodyText']),Spacer(1,14),Paragraph("Customer-facing proposal does not display List Price, Discount, Margin or COGS.",styles['BodyText'])]
     doc.build(story); b.seek(0); return b
 
 def growth_message(r):
@@ -127,6 +136,11 @@ def filipe_answer(text, seller_context="All"):
         return "No Priority Score, Conversion combina histórico de conversão do cliente (40%), conversão da família/produto (25%), recorrência de compra (20%) e maturidade da demanda (15%)."
     if "pipeline" in q:
         return f"Open Pipeline de {who}: {brl(d.Value.sum())}, distribuído em {len(d)} active opportunities."
+    if any(x in q for x in ["hoje","fazer hoje","prioridades do dia","agenda"]):
+        sf=d[d['SF Stage'].isin(['Develop','Propose'])]; od=sf[sf['Days Waiting']>10]; ng=growth[(growth.Seller==seller) & (growth['Growth Stage'].isin(['Identified','Approached']))] if seller else growth[growth['Growth Stage'].isin(['Identified','Approached'])]
+        return f"Prioridades de hoje para {who}: {int((d['SF Stage']=='Identify').sum())} New Opportunities, {len(sf)} Follow UPs ({len(od)} overdue / {brl(od.Value.sum())}), {len(ng)} Active Prospecting actions ({brl(ng['Growth Potential'].sum())}) e revisão de propostas em Propose quando houver negociação."
+    if "filipe" in q and any(x in q for x in ["trabalhando","carteira","responsavel","responsável"]):
+        fo=active[active.Owner=='Filipe']; fg=growth[growth.Responsible=='Filipe']; return f"Filipe é responsável por {len(fo)} oportunidades reativas Normal de até R$ 10K ({brl(fo.Value.sum())}), incluindo seus Follow UPs, e por {len(fg)} sinais de Active Prospecting de até R$ 50K ({brl(fg['Growth Potential'].sum())} de potencial interno)."
     return "Posso consultar o Smart Hub sobre demandas, Open Pipeline, AOP, Revenue at Risk, Growth, Follow UP Comercial, Conversion, Commercial Load e performance por vendedor. Ex.: ‘Quais são as demandas da Ana?’ ou ‘Quem tem menor Commercial Load?’"
 
 # ---------------------------- Navigation ----------------------------
@@ -138,7 +152,7 @@ st.sidebar.markdown("---\n#### Salesforce Pipeline")
 for _,r in summary().iterrows(): st.sidebar.markdown(f"**{r['SF Stage']}**  \n{r.OPPs} OPPs · {brl(r.Value)}")
 st.sidebar.caption(f"Demo AOP: {brl(AOP)}")
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>Serve better. Sell more. Prioritize what creates value. · V10 Executive Cockpit · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>Serve better. Sell more. Prioritize what creates value. · V11 Executive Cockpit · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Pages ----------------------------
 if page=="Central de Decisão":
@@ -176,29 +190,36 @@ if page=="Central de Decisão":
     with d: st.markdown(f'<div class="insight info"><b>AOP Gap</b><br>{brl(max(AOP-active.Value.sum()-won.Value.sum(),0))} remaining.<br><span class="small">Focus on Propose + Altíssima.</span></div>',unsafe_allow_html=True)
 
 elif page=="Performance Comercial do Time":
-    st.markdown('<div class="section-title">Team Performance Dashboard</div>',unsafe_allow_html=True)
-    c1,c2,c3,c4=st.columns(4); c1.metric("Team Performance Index", "83/100", "+3 pts"); c2.metric("Open Pipeline",brl(opps[opps['SF Stage'].isin(ACTIVE)].Value.sum())); c3.metric("FUP Compliance","90%","+4 p.p."); c4.metric("Incremental Revenue",brl(team['Incremental Revenue'].sum()))
-    c1,c2=st.columns([1.25,1])
-    with c1: st.caption("Seller Performance Index"); st.bar_chart(team.set_index("Seller")[["Performance Index","First Response SLA","FUP Compliance"]],height=250)
-    with c2: st.caption("Commercial Load Index"); st.bar_chart(team.set_index("Seller")["Commercial Load Index"],height=250)
-    t=team.copy(); t["Open Pipeline"]=t["Open Pipeline"].map(brl); t["Incremental Revenue"]=t["Incremental Revenue"].map(brl); st.dataframe(t,use_container_width=True,hide_index=True)
+    st.markdown('<div class="section-title">Team Performance & Daily Execution</div>',unsafe_allow_html=True)
+    fup_all=opps[opps['SF Stage'].isin(['Develop','Propose'])].copy(); fup_all['Overdue']=fup_all['Days Waiting']>10
+    prospect_all=growth[growth['Growth Stage'].isin(['Identified','Approached'])].copy()
+    c1,c2,c3,c4,c5,c6=st.columns(6)
+    c1.metric("Team Performance Index","83/100","+3 pts"); c2.metric("Open Pipeline",brl(opps[opps['SF Stage'].isin(ACTIVE)].Value.sum())); c3.metric("Overdue FUP",int(fup_all.Overdue.sum()),brl(fup_all.loc[fup_all.Overdue,'Value'].sum())); c4.metric("Active Prospecting",len(prospect_all),brl(prospect_all['Growth Potential'].sum())); c5.metric("FUP Compliance","90%","+4 p.p."); c6.metric("Incremental Revenue",brl(team['Incremental Revenue'].sum()))
+    c1,c2,c3=st.columns(3)
+    with c1: st.caption("Seller Performance Index"); st.bar_chart(team.set_index("Seller")[["Performance Index","First Response SLA","FUP Compliance"]],height=235)
+    with c2: st.caption("Commercial Load Index"); st.bar_chart(team.set_index("Seller")["Commercial Load Index"],height=235)
+    with c3: st.caption("Overdue FUP Value by Seller"); st.bar_chart(fup_all[fup_all.Overdue].groupby('Seller')['Value'].sum(),height=235)
     st.markdown('<div class="section-title">Seller Performance Dashboard</div>',unsafe_allow_html=True)
     seller=st.selectbox("Seller",team.Seller.tolist()); tr=team[team.Seller==seller].iloc[0]; so=opps[(opps.Seller==seller)&(opps['SF Stage'].isin(ACTIVE))]; sg=growth[growth.Seller==seller]
-    cols=st.columns(6); metrics=[("Performance Index",f"{tr['Performance Index']}/100","Management score"),("Open Pipeline",brl(so.Value.sum()),f"{len(so)} active OPPs"),("Conversion Rate",pct(tr['Conversion Rate']),"Commercial effectiveness"),("First Response SLA",pct(tr['First Response SLA']),"Response discipline"),("Growth Adoption",pct(tr['Growth Adoption']),"Proactive selling"),("Commercial Load",f"{tr['Commercial Load Index']}/100","Capacity indicator")]
+    sfup=fup_all[fup_all.Seller==seller]; overdue=sfup[sfup.Overdue]; sprosp=prospect_all[prospect_all.Seller==seller]
+    cols=st.columns(7); metrics=[("Performance Index",f"{tr['Performance Index']}/100","Management score"),("Open Pipeline",brl(so.Value.sum()),f"{len(so)} active OPPs"),("Conversion Rate",pct(tr['Conversion Rate']),"Commercial effectiveness"),("Overdue FUP",str(len(overdue)),brl(overdue.Value.sum())),("Active Prospecting",str(len(sprosp)),brl(sprosp['Growth Potential'].sum())),("Growth Adoption",pct(tr['Growth Adoption']),"Proactive selling"),("Commercial Load",f"{tr['Commercial Load Index']}/100","Capacity indicator")]
     for c,v in zip(cols,metrics):
         with c:kpi(*v)
     c1,c2,c3=st.columns(3)
-    with c1: st.caption("Salesforce Funnel"); st.bar_chart(summary(opps[opps.Seller==seller]).set_index('SF Stage')['Value'],height=230)
-    with c2: st.caption("Priority Portfolio"); st.bar_chart(so.Priority.value_counts().reindex(['Altíssima','Alta','Normal']).fillna(0),height=230)
-    with c3: st.caption("Growth Funnel"); st.bar_chart(sg['Growth Stage'].value_counts(),height=230)
+    with c1: st.caption("Salesforce Funnel"); st.bar_chart(summary(opps[opps.Seller==seller]).set_index('SF Stage')['Value'],height=220)
+    with c2: st.caption("Priority Portfolio"); st.bar_chart(so.Priority.value_counts().reindex(['Altíssima','Alta','Normal']).fillna(0),height=220)
+    with c3: st.caption("Growth Funnel"); st.bar_chart(sg['Growth Stage'].value_counts(),height=220)
+    st.markdown("<div class=\"section-title\">Today&#39;s Priorities</div>",unsafe_allow_html=True)
+    newopp=so[so['SF Stage']=='Identify'][['Customer','Owner','Value','Priority','Next Best Action']].copy(); newopp.insert(0,'Activity','New Opportunity')
+    fupday=sfup[(sfup['Days Waiting'].isin([2,5,10])) | (sfup['Days Waiting']>10)][['Customer','Owner','Value','Priority','Next Best Action']].copy(); fupday.insert(0,'Activity','Follow UP')
+    prospect=sprosp[['Customer','Responsible','Growth Potential','Growth Stage','Value Proposition']].copy(); prospect.columns=['Customer','Owner','Value','Priority','Next Best Action']; prospect['Priority']='Growth'; prospect.insert(0,'Activity','Active Prospecting')
+    review=opps[(opps.Seller==seller)&(opps['SF Stage']=='Propose')&(opps['Next Best Action'].str.contains('Negotiation|overdue',case=False,regex=True))][['Customer','Owner','Value','Priority','Next Best Action']].copy(); review.insert(0,'Activity','Review Proposal')
+    daily=pd.concat([newopp,fupday,prospect,review],ignore_index=True); daily['Value']=daily['Value'].map(brl)
+    st.dataframe(daily,use_container_width=True,hide_index=True)
     c1,c2=st.columns(2)
-    with c1:
-        st.caption("Performance Dimensions")
-        dims=pd.DataFrame({"Dimension":["Conversion","SLA","Growth","FUP","Pipeline Coverage"],"Index":[tr['Conversion Rate']/35*100,tr['First Response SLA'],tr['Growth Adoption'],tr['FUP Compliance'],tr['Pipeline Coverage']]}).set_index('Dimension'); st.bar_chart(dims,height=230)
-    with c2:
-        st.caption("Manager Insights & Coaching")
-        st.info(f"{seller}: strongest dimension is SLA / execution discipline. Coaching focus: increase Growth conversion and protect high-priority Follow UP cadence. Commercial Load Index = {int(tr['Commercial Load Index'])}; use this metric for agent handoff decisions.")
-        st.metric("Incremental Revenue",brl(tr['Incremental Revenue'])); st.metric("FUP Compliance",pct(tr['FUP Compliance']))
+    with c1: st.caption("Follow UP Exposure"); st.bar_chart(sfup.groupby('SF Stage')['Value'].sum(),height=210)
+    with c2: st.caption("Active Prospecting Potential"); st.bar_chart(sg.groupby('Growth Stage')['Growth Potential'].sum(),height=210)
+    st.info(f"Manager Insights & Coaching — {seller}: {len(overdue)} overdue FUP ({brl(overdue.Value.sum())}), {len(sprosp)} active prospecting actions ({brl(sprosp['Growth Potential'].sum())}) and {len(review)} proposal review(s). Filipe absorbs governed low-value execution and prospecting to release human capacity.")
 
 elif page=="Smart Workflow":
     st.markdown('<div class="section-title">Smart Workflow — Demand to Action</div>',unsafe_allow_html=True)
@@ -206,7 +227,18 @@ elif page=="Smart Workflow":
     f1,f2=st.columns(2); seller=f1.selectbox("Seller",["All"]+team.Seller.tolist(),key="wf_seller"); stage=f2.selectbox("Salesforce Stage",["All"]+STAGES,key="wf_stage")
     wf=opps.copy(); wf=wf if seller=="All" else wf[wf.Seller==seller]; wf=wf if stage=="All" else wf[wf['SF Stage']==stage]
     stage_cards(wf)
-    view=wf[["Priority","Customer","Seller","Items in Quote","Value","Cross Sell / Up Sell","SF Stage","Next Best Action"]].copy(); view["Priority"]=view.apply(lambda r:r["Priority"],axis=1); view.Value=view.Value.map(brl); st.dataframe(view,use_container_width=True,hide_index=True)
+    st.caption("Proposal actions are available only in Identify / Develop. Propose uses Review Proposal when negotiation or volume/price changes are requested.")
+    editable=wf[["Priority","Customer","Owner","Items in Quote","Value","Cross Sell / Up Sell","SF Stage","Next Best Action","OPP"]].copy()
+    editable['Add to Proposal']=False; editable['Generate Proposal']=False
+    editable.loc[~editable['SF Stage'].isin(['Identify','Develop']),['Add to Proposal','Generate Proposal']]=False
+    editable['Value']=editable['Value'].map(brl)
+    edited=st.data_editor(editable[["Priority","Customer","Owner","Items in Quote","Value","Cross Sell / Up Sell","Add to Proposal","SF Stage","Next Best Action","Generate Proposal","OPP"]],use_container_width=True,hide_index=True,disabled=["Priority","Customer","Owner","Items in Quote","Value","Cross Sell / Up Sell","SF Stage","Next Best Action","OPP"],column_config={"Add to Proposal":st.column_config.CheckboxColumn("Add to Proposal"),"Generate Proposal":st.column_config.CheckboxColumn("Generate Proposal"),"OPP":None},key="workflow_editor")
+    invalid=edited[(~edited['SF Stage'].isin(['Identify','Develop'])) & (edited['Generate Proposal']|edited['Add to Proposal'])]
+    if len(invalid): st.warning("Generate Proposal / Add to Proposal are governed actions available only in Identify and Develop.")
+    requested=edited[(edited['Generate Proposal']) & (edited['SF Stage'].isin(['Identify','Develop']))]
+    for _,er in requested.iterrows():
+        rr=opps[opps.OPP==er.OPP].iloc[0]; pdf=proposal_pdf(rr,bool(er['Add to Proposal']))
+        st.download_button(f"Download Proposal — {rr.Customer}",pdf,file_name=f"proposal_demo_{int(rr.OPP)}.pdf",mime="application/pdf",key=f"dl_{int(rr.OPP)}")
     if len(wf):
         sel=st.selectbox("Selected Opportunity",wf.OPP.tolist(),format_func=lambda z:f"{wf.loc[wf.OPP==z,'Customer'].iloc[0]} · {brl(wf.loc[wf.OPP==z,'Value'].iloc[0])}"); r=opps[opps.OPP==sel].iloc[0]
         st.markdown('<div class="section-title">Selected Opportunity — 360° View</div>',unsafe_allow_html=True)
@@ -217,11 +249,13 @@ elif page=="Smart Workflow":
         with tabs[2]: st.success(f"Cross Sell / Up Sell: {r['Cross Sell / Up Sell']}")
         with tabs[3]: st.write(f"Inventory driver: {r.Inventory}/20 · {risk_color(component_level(r.Inventory,20))} {component_level(r.Inventory,20)}")
         with tabs[4]: st.write(f"Latest interaction source: {r.Source}. Days waiting: {r['Days Waiting']}.")
-        b1,b2,b3=st.columns(3)
-        if b1.button("Generate Opportunity",use_container_width=True): st.success("OPP criada ✓ — incoming demand is already registered in Salesforce Identify.")
-        if b2.button("Add Cross / Up Sell",use_container_width=True): st.success(f"Optional opportunity added: {r['Cross Sell / Up Sell']}")
-        pdf=proposal_pdf(r); b3.download_button("Generate Proposal",pdf,file_name=f"proposal_demo_{int(r.OPP)}.pdf",mime="application/pdf",use_container_width=True)
-        st.caption("Generating the PDF does not move the Salesforce stage. Propose only after the proposal is sent.")
+        if r['SF Stage'] in ['Identify','Develop']:
+            st.success("Commercial creation window open — optional Cross / Up Sell and initial proposal can be prepared.")
+        elif r['SF Stage']=='Propose':
+            st.warning("Initial proposal already sent. If customer requests price, volume or scope changes, use Review Proposal in the responsible activity queue.")
+            if st.button("Review Proposal",use_container_width=True,key=f"review_{int(r.OPP)}"):
+                st.download_button("Download Revised Proposal",proposal_pdf(r,True,True),file_name=f"revised_proposal_demo_{int(r.OPP)}.pdf",mime="application/pdf",key=f"revdl_{int(r.OPP)}")
+        else: st.info("Proposal creation is closed at this Salesforce stage.")
 
 elif page=="Fila Inteligente":
     st.markdown('<div class="section-title">Smart Priority — Explainable Commercial Prioritization</div>',unsafe_allow_html=True)
@@ -244,23 +278,25 @@ elif page=="Growth Engine":
     c1,c2=st.columns(2)
     with c1: st.caption("Growth Funnel"); st.bar_chart(g['Growth Stage'].value_counts(),height=230)
     with c2: st.caption("Growth Potential by Seller"); st.bar_chart(g.groupby('Seller')['Growth Potential'].sum(),height=230)
-    v=g[["Customer","Seller","Type","Suggested Item","Qty","Growth Potential","Value Proposition","Growth Stage"]].copy(); v['Growth Potential']=v['Growth Potential'].map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
+    v=g[["Customer","Seller","Responsible","Type","Suggested Item","Qty","Growth Potential","Value Proposition","Growth Stage"]].copy(); v['Growth Potential']=v['Growth Potential'].map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
     if len(g):
         idx=st.selectbox("Generate Text",g.index.tolist(),format_func=lambda i:f"{g.loc[i,'Customer']} — {g.loc[i,'Suggested Item']}");
         if st.button("Generate Text for WhatsApp / Email"):
             st.text_area("Suggested outreach",growth_message(g.loc[idx]),height=125)
-    st.info("Growth does not create a proposal first. The agent may proactively approach governed signals up to R$ 50K internal potential. Salesforce OPP is created only after customer interaction/interest.")
+    st.info("Growth does not create a proposal first. Filipe may proactively approach governed signals up to R$ 50K internal potential. Salesforce OPP is created only after customer interaction/interest.")
 
 elif page=="Follow UP Comercial":
     st.markdown('<div class="section-title">Follow UP Comercial — Cadence & Pipeline Protection</div>',unsafe_allow_html=True)
     f=opps[opps['SF Stage'].isin(['Develop','Propose'])].copy()
+    fs=st.selectbox("Responsible",["All","Filipe"]+team.Seller.tolist(),key="fup_owner")
+    if fs!="All": f=f[f.Owner==fs]
     def fup_status(d): return "Overdue" if d>10 else "Today" if d in [2,5,10] else "Scheduled"
     f['FUP Status']=f['Days Waiting'].apply(fup_status); f['Aging Bucket']=pd.cut(f['Days Waiting'],[-1,2,5,10,999],labels=['0–2 days','3–5 days','6–10 days','>10 days'])
     c1,c2,c3,c4=st.columns(4); c1.metric("FUP Today",int((f['FUP Status']=='Today').sum())); c2.metric("Overdue FUP",int((f['FUP Status']=='Overdue').sum())); c3.metric("Pipeline Awaiting Response",brl(f.Value.sum())); c4.metric("FUP Compliance","90%")
     c1,c2=st.columns(2)
     with c1: st.caption("Pipeline Aging"); st.bar_chart(f.groupby('Aging Bucket',observed=False)['Value'].sum(),height=240)
     with c2: st.caption("FUP Load by Seller"); st.bar_chart(f.groupby('Seller')['Value'].sum(),height=240)
-    v=f[["Customer","Value","Days Waiting","Seller","SF Stage","FUP Status","Next Best Action"]].copy(); v.Value=v.Value.map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
+    v=f[["Customer","Value","Days Waiting","Owner","Seller","SF Stage","FUP Status","Next Best Action"]].copy(); v.Value=v.Value.map(brl); st.dataframe(v,use_container_width=True,hide_index=True)
     st.caption("Cadence: D+2 → D+5 → D+10 → every +5 days until closure. Order Promised and Lost Closed exit the active queue.")
 
 elif page=="Account 360":
@@ -279,7 +315,7 @@ Email / WhatsApp → Customer Match → **Salesforce Identify** → Enrichment �
 Installed base + history + portfolio + inventory → Growth Signal → governed proactive outreach → customer interaction → **Salesforce Identify** → same commercial flow.
 
 **Governance**  
-The system prepares, prioritizes and executes governed volume. Pricing exceptions, credit issues, inventory constraints and financial commitments remain under human approval. Agent handoff goes to the seller with the lowest **Commercial Load Index**.""")
+The system prepares, prioritizes and executes governed volume. Pricing exceptions, credit issues, inventory constraints and financial commitments remain under human approval. Filipe owns governed Normal reactive opportunities up to R$ 10K, including their Follow UP, and proactively searches/approaches Growth signals up to R$ 50K. Handoff goes to the seller with the lowest **Commercial Load Index** when human judgment is required.""")
 
 else:
     st.markdown('<div class="section-title">Presentation Mode — 20 Minute Business Case</div>',unsafe_allow_html=True)
@@ -288,7 +324,7 @@ else:
 **2. Smart Priority | Conversion** — explainable Revenue + Conversion + Inventory + SLA + Credit.  
 **3. Smart Growth | Incremental Revenue** — identify demand before the call and create qualified commercial interest.
 
-**Executive principle:** *Automate volume. Preserve sellers for commercial judgment and higher-impact decisions.*
+**Executive principle:** *Filipe absorbs governed volume up to R$ 10K, owns its Follow UP and prospects portfolio opportunities up to R$ 50K. Preserve sellers for commercial judgment and higher-impact decisions.*
 
 **First 30 days:** D1–5 baseline & SLA · D6–10 queue & scoring pilot · D11–20 Follow UP & dashboards · D21–30 Growth Engine & controlled agent pilot.
 
