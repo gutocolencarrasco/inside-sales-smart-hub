@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title='Inside Sales Smart Hub V5', page_icon='⚡', layout='wide')
+st.set_page_config(page_title='Inside Sales Smart Hub V6', page_icon='⚡', layout='wide')
 
 st.markdown('''
 <style>
@@ -95,34 +95,48 @@ def growth_engine():
     return g.sort_values(['Growth_Score','Potencial_Demo'],ascending=False)
 G=growth_engine()
 
-st.markdown('''<div class="hero"><h1>Inside Sales Smart Hub V5</h1><p>From Reactive Requests to Intelligent Revenue Growth</p><span class="pill">SMART WORKFLOW</span><span class="pill">SMART PRIORITY</span><span class="pill">SMART GROWTH</span></div>''',unsafe_allow_html=True)
+st.markdown('''<div class="hero"><h1>Inside Sales Smart Hub V6</h1><p>From Reactive Requests to Intelligent Revenue Growth</p><span class="pill">SMART WORKFLOW</span><span class="pill">SMART PRIORITY</span><span class="pill">SMART GROWTH</span></div>''',unsafe_allow_html=True)
 st.caption('MVP demonstrativo • Todos os clientes, CNPJs, SKUs, oportunidades, volumes e valores exibidos são fictícios e anonimizados.')
 
 page=st.sidebar.radio('Navegação',['Central de Decisão','Smart Workflow','Fila Inteligente','Account 360','Growth Engine','Cockpit do Coordenador','Arquitetura & Automação','Modo Apresentação'])
 st.sidebar.markdown('---'); st.sidebar.metric('Operação','600 orçamentos/mês','≈ 30/dia útil'); st.sidebar.metric('Time','3 colaboradores'); st.sidebar.caption('Business Case • dados demonstrativos')
 
 if page=='Central de Decisão':
-    st.subheader('O que precisa da minha atenção agora?')
-    p1=Q[Q.Score>=80]; late=Q[Q.SLA_h>4]; stockrisk=Q[Q.Estoque_Livre<=3]
+    st.subheader('Central de Decisão — o que merece atenção agora?')
+    p1=Q[Q.Score>=80]; late=Q[Q.SLA_h>4]; stockrisk=Q[Q.Estoque_Livre<=3]; hi=G[G.Growth_Score>=70]
     c1,c2,c3,c4=st.columns(4)
-    c1.metric('P1 • atacar agora',len(p1),brl(p1.Valor.sum()))
+    c1.metric('P1 • atender agora',len(p1),brl(p1.Valor.sum()))
     c2.metric('Fora do SLA',len(late),brl(late.Valor.sum()))
-    c3.metric('Receita em risco',brl(stockrisk.Valor.sum()),'estoque/abastecimento')
-    c4.metric('Growth identificado',brl(G[G.Growth_Score>=70].Potencial_Demo.sum()),f"{len(G[G.Growth_Score>=70])} sinais")
+    c3.metric('Receita em risco',brl(stockrisk.Valor.sum()),'estoque / abastecimento')
+    c4.metric('Growth identificado',brl(hi.Potencial_Demo.sum()),f"{len(hi)} sinais")
+
+    st.markdown('### Leitura executiva do dia')
+    a,b,c=st.columns(3)
+    a.markdown('<div class="card"><b>SMART WORKFLOW</b><div class="big">Preparar antes de distribuir</div><p class="muted">Identificação, histórico, estoque, crédito e cadência prontos antes do vendedor atuar.</p></div>',unsafe_allow_html=True)
+    b.markdown('<div class="card"><b>SMART PRIORITY</b><div class="big">Fila por impacto</div><p class="muted">Valor + conversão + estoque + SLA + crédito substituem a ordem puramente cronológica.</p></div>',unsafe_allow_html=True)
+    c.markdown('<div class="card"><b>SMART GROWTH</b><div class="big">Criar demanda</div><p class="muted">Base instalada, recorrência e comportamento geram sinais de reativação, cross-sell e upsell.</p></div>',unsafe_allow_html=True)
+
     st.markdown('### Próximas melhores ações')
     view=Q[['OPP','Cliente','Vendedor','Produto','Valor','Score','Prioridade','SLA_h','Etapa']].head(6).copy()
     view['Valor']=view['Valor'].map(brl)
     view=view.rename(columns={'Valor':'Valor demonstrativo','SLA_h':'SLA (h)'})
     st.dataframe(view,use_container_width=True,hide_index=True)
-    st.info('A fila deixa de ser cronológica: o vendedor recebe primeiro as oportunidades com maior combinação de potencial, conversão, disponibilidade, SLA e crédito.')
+
+    st.markdown('### Gestão por exceção')
+    x1,x2,x3=st.columns(3)
+    x1.info(f"**SLA:** {len(late)} oportunidades precisam de ação para voltar à cadência.")
+    x2.warning(f"**Revenue at Risk:** {len(stockrisk)} oportunidades têm restrição de estoque.")
+    x3.success(f"**Growth:** {len(hi)} sinais proativos já podem virar abordagem comercial.")
+    st.caption('Objetivo do hub: reduzir decisões operacionais repetitivas e aumentar o tempo efetivo de venda.')
 
 elif page=='Smart Workflow':
-    st.subheader('Smart Workflow — preparar a oportunidade antes de chegar ao vendedor')
+    st.subheader('Smart Workflow — da solicitação bruta à oportunidade pronta')
     st.markdown('**Entrada → Identificação → Validação → Enriquecimento → Priorização → Cadência → Gestão**')
+
     c1,c2,c3=st.columns(3)
     c1.markdown('<div class="card"><h3>1. Capturar</h3><div class="big">E-mail / WhatsApp / CRM</div><p class="muted">Extrair cliente, CNPJ, OPP, SKU, quantidade, valor e prazo.</p></div>',unsafe_allow_html=True)
-    c2.markdown('<div class="card"><h3>2. Enriquecer</h3><div class="big">Cliente + Estoque</div><p class="muted">Cruzar histórico, base instalada, crédito e disponibilidade.</p></div>',unsafe_allow_html=True)
-    c3.markdown('<div class="card"><h3>3. Executar</h3><div class="big">Prioridade + Cadência</div><p class="muted">Calcular score, sugerir próxima melhor ação e criar follow-up com SLA.</p></div>',unsafe_allow_html=True)
+    c2.markdown('<div class="card"><h3>2. Enriquecer</h3><div class="big">Cliente + Histórico + Estoque</div><p class="muted">Cruzar base instalada, recorrência, crédito e disponibilidade.</p></div>',unsafe_allow_html=True)
+    c3.markdown('<div class="card"><h3>3. Executar</h3><div class="big">Prioridade + Cadência</div><p class="muted">Calcular score, sugerir próxima ação e preparar follow-up.</p></div>',unsafe_allow_html=True)
 
     st.markdown('### Simulação de nova solicitação')
     a,b,c=st.columns(3)
@@ -135,39 +149,58 @@ elif page=='Smart Workflow':
         ac=CUSTOMERS[CUSTOMERS.Cliente==cli].iloc[0]
         base_cli=BASE[BASE.Cliente==cli]
         hist_meses=int(base_cli.Meses_Desde_Compra.max()) if len(base_cli) else 0
-
         estoque_score = 100 if s.Estoque_Livre >= 10 else (65 if s.Estoque_Livre > 0 else 5)
         credito_score = 100 if ac.Credito_Livre >= val else (55 if ac.Credito_Livre > 0 else 5)
         recencia_score = 90 if ac.Dias_Ultima_Compra <= 45 else (70 if ac.Dias_Ultima_Compra <= 90 else 45)
         valor_score = min(100, max(20, val/180000*100))
         score = int(round(valor_score*.30 + 82*.25 + estoque_score*.20 + recencia_score*.15 + credito_score*.10))
         prioridade = 'P1 • Atender agora' if score >= 80 else ('P2 • Alta prioridade' if score >= 65 else 'P3 • Normal')
-
         cross = STOCK[(STOCK.SKU != sku) & (STOCK.Estoque_Livre > 0)].sort_values('Estoque_Livre',ascending=False).iloc[0]
-        st.markdown('### Oportunidade preparada automaticamente')
-        x1,x2,x3=st.columns(3)
-        x1.metric('Commercial Priority Score',score,prioridade)
-        x2.metric('Estoque disponível',f"{int(s.Estoque_Livre)} un.",f"+ {int(s.Transito)} em trânsito")
+
+        st.markdown('### Resultado do processamento')
+        x1,x2,x3,x4=st.columns(4)
+        x1.metric('Priority Score',f'{score}/100',prioridade)
+        x2.metric('Estoque livre',f"{int(s.Estoque_Livre)} un.",f"+{int(s.Transito)} em trânsito")
         x3.metric('Crédito livre',brl(ac.Credito_Livre),'demonstrativo')
+        x4.metric('Base instalada',f"{int(ac.Base_Instalada)} eq.",f"{hist_meses} meses máx. recorrência")
 
-        st.markdown(f'<div class="step-ok">✓ <b>Cliente identificado</b> — {cli} • vendedor responsável: {ac.Vendedor}</div>',unsafe_allow_html=True)
-        st.markdown(f'<div class="step-ok">✓ <b>Base instalada consultada</b> — {int(ac.Base_Instalada)} equipamentos • maior janela de recorrência: {hist_meses} meses</div>',unsafe_allow_html=True)
-        st.markdown(f'<div class="step-ok">✓ <b>Estoque validado</b> — {s.Descricao}: {int(s.Estoque_Livre)} unidades livres</div>',unsafe_allow_html=True)
-        st.markdown(f'<div class="step-ok">✓ <b>Crédito verificado</b> — {brl(ac.Credito_Livre)} livres para uma solicitação de {brl(val)}</div>',unsafe_allow_html=True)
-        st.markdown(f'<div class="step-ok">✓ <b>Prioridade calculada</b> — Score {score}/100 • {prioridade}</div>',unsafe_allow_html=True)
-        st.markdown(f'<div class="step-ok">✓ <b>Cross-sell sugerido</b> — {cross.Descricao} • SKU {cross.SKU}</div>',unsafe_allow_html=True)
-        st.markdown('<div class="step-ok">✓ <b>Cadência preparada</b> — primeiro contato agora • follow-up D+2 • novo alerta D+5 se não houver retorno</div>',unsafe_allow_html=True)
+        steps=[
+            f"✓ Cliente identificado — {cli}",
+            f"✓ Vendedor responsável — {ac.Vendedor}",
+            f"✓ Histórico e base instalada consultados — {int(ac.Base_Instalada)} equipamentos",
+            f"✓ Estoque validado — {s.Descricao}: {int(s.Estoque_Livre)} unidades livres",
+            f"✓ Crédito verificado — {brl(ac.Credito_Livre)} livres para solicitação de {brl(val)}",
+            f"✓ Commercial Priority Score calculado — {score}/100 • {prioridade}",
+            f"✓ Cross-sell sugerido — {cross.Descricao} • SKU {cross.SKU}",
+            "✓ Cadência preparada — contato agora • follow-up D+2 • alerta D+5"
+        ]
+        for item in steps:
+            st.markdown(f'<div class="step-ok">{item}</div>',unsafe_allow_html=True)
 
-        motivo = 'estoque disponível, crédito suficiente e bom potencial comercial' if ac.Credito_Livre >= val and s.Estoque_Livre > 0 else 'necessidade de validação antes do avanço'
-        st.markdown(f'<div class="reco"><b>Próxima melhor ação para o vendedor</b><br>{prioridade}. Prosseguir com contato comercial porque há {motivo}. O Smart Hub prepara a oportunidade e a cadência; a decisão comercial final permanece com o vendedor.</div>',unsafe_allow_html=True)
+        st.markdown('### O que chega pronto para o vendedor')
+        r1,r2,r3=st.columns(3)
+        r1.markdown('<div class="card"><b>OPORTUNIDADE</b><p class="muted">Conta, contexto, SKU, valor e prioridade já organizados.</p></div>',unsafe_allow_html=True)
+        r2.markdown('<div class="card"><b>PRÓXIMA MELHOR AÇÃO</b><p class="muted">Orientação objetiva do que fazer primeiro e por quê.</p></div>',unsafe_allow_html=True)
+        r3.markdown('<div class="card"><b>CADÊNCIA</b><p class="muted">Follow-up preparado para evitar perda por falta de resposta.</p></div>',unsafe_allow_html=True)
+
+        motivo = 'estoque disponível, crédito suficiente e alto potencial comercial' if ac.Credito_Livre >= val and s.Estoque_Livre > 0 else 'necessidade de validação antes do avanço'
+        st.markdown(f'<div class="reco"><b>Recomendação ao vendedor</b><br>{prioridade}. Prosseguir com contato comercial: {motivo}. Avaliar também <b>{cross.Descricao}</b> como cross-sell. O sistema prepara e recomenda; a decisão comercial final permanece humana.</div>',unsafe_allow_html=True)
 
 elif page=='Fila Inteligente':
     st.subheader('Smart Priority — trabalhar a oportunidade certa no momento certo')
-    fila=Q[['OPP','Cliente','Produto','Vendedor','Valor','Prob','Estoque_Livre','SLA_h','Credito','Score','Prioridade']].copy()
-    fila['Valor']=fila['Valor'].map(brl); fila['Prob']=(fila['Prob']*100).round().astype(int).astype(str)+'%'
+    f1,f2=st.columns(2)
+    vendedor=f1.selectbox('Filtrar vendedor',['Todos']+sorted(Q.Vendedor.unique().tolist()))
+    prioridade_f=f2.selectbox('Filtrar prioridade',['Todas','P1','P2','P3'])
+    fq=Q.copy()
+    if vendedor!='Todos': fq=fq[fq.Vendedor==vendedor]
+    if prioridade_f!='Todas': fq=fq[fq.Prioridade.str.startswith(prioridade_f)]
+    fila=fq[['OPP','Cliente','Produto','Vendedor','Valor','Prob','Estoque_Livre','SLA_h','Credito','Score','Prioridade']].copy()
+    fila['Valor']=fila['Valor'].map(brl)
+    fila['Prob']=(fila['Prob']*100).round().astype(int).astype(str)+'%'
     fila=fila.rename(columns={'Valor':'Valor demonstrativo','Prob':'Prob. conversão','SLA_h':'SLA (h)'})
     st.dataframe(fila,use_container_width=True,hide_index=True)
     st.caption('Score demonstrativo: Receita 30% • Conversão 25% • Estoque 20% • SLA 15% • Crédito 10%. Pesos calibráveis com histórico real.')
+    st.info('A fila é recalculada quando mudam estoque, SLA, crédito ou contexto comercial — o ranking acompanha o negócio, não apenas a hora de chegada.')
 
 elif page=='Account 360':
     st.subheader('Account 360 — contexto comercial em uma única tela')
@@ -196,44 +229,100 @@ elif page=='Growth Engine':
     st.success('Motor proativo cruza base instalada + recência + estoque + crédito + comportamento para sugerir reativação, cross-sell e upsell.')
 
 elif page=='Cockpit do Coordenador':
-    st.subheader('Cockpit do Coordenador — produtividade, conversão e coaching')
-    perf=Q.groupby('Vendedor').agg(Oportunidades=('OPP','count'),Pipeline=('Valor','sum'),Score_Medio=('Score','mean'),SLA_Medio=('SLA_h','mean'),Conversao=('Prob','mean')).reset_index(); perf['Conversao']=perf.Conversao*100
-    st.dataframe(perf,use_container_width=True,hide_index=True)
+    st.subheader('Cockpit do Coordenador — gestão de capacidade, conversão e coaching')
+    perf=Q.groupby('Vendedor').agg(Oportunidades=('OPP','count'),Pipeline=('Valor','sum'),Score_Medio=('Score','mean'),SLA_Medio=('SLA_h','mean'),Conversao=('Prob','mean')).reset_index()
+    perf['Conversao']=perf.Conversao*100
+    perf_show=perf.copy()
+    perf_show['Pipeline']=perf_show['Pipeline'].map(brl)
+    perf_show['Score_Medio']=perf_show['Score_Medio'].round(0).astype(int)
+    perf_show['SLA_Medio']=perf_show['SLA_Medio'].round(1)
+    perf_show['Conversao']=perf_show['Conversao'].round(0).astype(int).astype(str)+'%'
+    st.dataframe(perf_show,use_container_width=True,hide_index=True)
+
+    st.markdown('### Gestão por exceção e coaching')
     for _,r in perf.iterrows():
-        if r.SLA_Medio>4: st.warning(f"{r.Vendedor}: revisar carga e redistribuir oportunidades; SLA médio {r.SLA_Medio:.1f}h.")
-        elif r.Conversao<70: st.info(f"{r.Vendedor}: coaching em qualificação e follow-up.")
-        else: st.success(f"{r.Vendedor}: desempenho equilibrado; manter cadência e explorar Growth Engine.")
+        if r.SLA_Medio>4:
+            st.warning(f"{r.Vendedor}: revisar carga, priorização e redistribuição; SLA médio {r.SLA_Medio:.1f}h.")
+        elif r.Conversao<70:
+            st.info(f"{r.Vendedor}: coaching em qualificação, objeções e follow-up.")
+        else:
+            st.success(f"{r.Vendedor}: desempenho equilibrado; manter cadência e ampliar uso do Growth Engine.")
+
+    st.markdown('### KPIs de gestão')
+    k1,k2,k3,k4=st.columns(4)
+    k1.metric('Meta 1º contato','≤ 4 h')
+    k2.metric('Conversão alvo','38%','meta demonstrativa')
+    k3.metric('Follow-up','D+2 / D+5')
+    k4.metric('Cobertura','600/mês','3 colaboradores')
 
 elif page=='Arquitetura & Automação':
-    st.subheader('Como deixar a operação automatizada')
+    st.subheader('Arquitetura proposta — automatizar preparação, não julgamento comercial')
     st.markdown('''
-**Camada 1 — Entradas:** e-mail, WhatsApp e solicitações já registradas no CRM.  
-**Camada 2 — Dados:** Salesforce/CRM + ERP/SAP (estoque) + histórico de pedidos/faturamento + base instalada.  
-**Camada 3 — Orquestração:** regras de identificação, deduplicação, SLA, score, cadência e Growth Engine.  
-**Camada 4 — IA assistiva:** extração de dados, resumo da conta, sugestão de resposta e próxima melhor ação.  
-**Camada 5 — Governança:** vendedor valida decisão comercial; crédito, pricing excepcional e criação definitiva de cliente permanecem sob aprovação humana.
+**1. Entradas** — e-mail, WhatsApp e CRM.  
+**2. Dados** — Salesforce/CRM + ERP/SAP (estoque) + histórico de pedidos/faturamento + base instalada.  
+**3. Orquestração** — identificação, deduplicação, SLA, score, roteamento, cadência e Growth Engine.  
+**4. IA assistiva** — extração de dados, resumo da conta, sugestão de resposta e próxima melhor ação.  
+**5. Governança** — vendedor valida decisão comercial; crédito, pricing excepcional e criação definitiva de cliente permanecem sob aprovação humana.
 ''')
-    st.markdown('### Automação proposta')
     flow=pd.DataFrame([
-        ['1','Nova solicitação','Captura automática','Cliente/CNPJ/OPP/SKU/valor identificados'],['2','Match da conta','CRM','Conta existente ou pré-cadastro'],['3','Enriquecimento','CRM + ERP','Histórico, base instalada, crédito e estoque'],['4','Priorização','Motor de regras','Commercial Priority Score'],['5','Execução','IA assistiva','Resposta sugerida + próxima melhor ação'],['6','Cadência','CRM/Flow','Follow-up D+2 / D+5 + alerta'],['7','Gestão','Dashboard','SLA, conversão, pipeline, revenue at risk e growth']
-    ],columns=['Etapa','Evento','Motor','Saída'])
+        ['1','Solicitação recebida','E-mail / WhatsApp / CRM','Captura dos campos relevantes'],
+        ['2','Identificação','CRM','Match por cliente/CNPJ e responsável'],
+        ['3','Enriquecimento','CRM + ERP/SAP','Histórico + base instalada + crédito + estoque'],
+        ['4','Priorização','Motor de regras','Commercial Priority Score'],
+        ['5','Execução assistida','IA + CRM','Resumo + resposta sugerida + próxima ação'],
+        ['6','Cadência','Flow / CRM','D+2 / D+5 + alertas de SLA'],
+        ['7','Growth Engine','Dados comerciais','Reativação + cross-sell + upsell'],
+        ['8','Gestão','Dashboard','SLA + conversão + pipeline + revenue at risk']
+    ],columns=['Etapa','Evento','Origem / Motor','Saída'])
     st.dataframe(flow,use_container_width=True,hide_index=True)
-    st.warning('Princípio de governança: automatizar preparação e priorização; não automatizar decisões financeiras ou exceções comerciais sem aprovação humana.')
+
+    st.markdown('### O que eu automatizaria x o que manteria humano')
+    h1,h2=st.columns(2)
+    h1.success('**Automatizar:** captura, consulta, enriquecimento, score, alertas, cadência, recomendações e dashboards.')
+    h2.warning('**Manter humano:** aprovação de crédito, exceções de pricing, criação definitiva de cliente e decisão final de negociação.')
 
 elif page=='Modo Apresentação':
-    st.subheader('Roteiro de 20 minutos')
-    st.markdown('''
-**0–3 min • Diagnóstico** — 600 orçamentos/mês, ~30/dia, 3 pessoas e operação predominantemente reativa.  
-**3–5 min • Visão** — Smart Workflow + Smart Priority + Smart Growth.  
-**5–9 min • Workflow** — reduzir trabalho operacional e tempo até o primeiro contato.  
-**9–12 min • Priority** — substituir fila cronológica por fila de impacto.  
-**12–15 min • Growth** — criar oportunidades antes do chamado.  
-**15–18 min • Demo** — Central → Account 360 → Growth Engine.  
-**18–20 min • 30 dias + KPIs** — provar impacto e calibrar a solução.
-''')
-    st.markdown('### Primeiros 30 dias')
-    plan=pd.DataFrame([['Dias 1–5','Baseline + SLA','Mapear funil, tempos e perdas'],['Dias 6–10','Fila inteligente piloto','Score inicial + gestão diária'],['Dias 11–20','Cadência + cockpit','Follow-up e gestão por exceção'],['Dias 21–30','Growth Engine piloto','Reativação/cross-sell em contas selecionadas']],columns=['Período','Prioridade','Entrega'])
-    st.dataframe(plan,use_container_width=True,hide_index=True)
-    st.markdown('**KPIs:** tempo até primeiro contato • % dentro do SLA • conversão • ciclo de vendas • oportunidades/rep • follow-up compliance • oportunidades proativas • receita incremental • revenue at risk.')
+    st.subheader('Modo Apresentação — roteiro guiado do Business Case')
 
-st.markdown('---'); st.caption('Inside Sales Smart Hub V5 • MVP demonstrativo • dados 100% fictícios e anonimizados • lógica inspirada na estrutura operacional, sem exposição de informações comerciais reais')
+    st.markdown('### 1. Diagnóstico')
+    st.info('A operação recebe aproximadamente 600 orçamentos/mês (~30 por dia útil) com 3 colaboradores. O desafio não é simplesmente trabalhar mais solicitações; é trabalhar as oportunidades certas, mais rápido e gerar demanda além do fluxo reativo.')
+
+    st.markdown('### 2. Três soluções conectadas')
+    s1,s2,s3=st.columns(3)
+    s1.markdown('<div class="card"><b>SMART WORKFLOW</b><div class="big">Produtividade</div><p class="muted">Preparar a oportunidade antes de chegar ao vendedor.</p></div>',unsafe_allow_html=True)
+    s2.markdown('<div class="card"><b>SMART PRIORITY</b><div class="big">Conversão</div><p class="muted">Priorizar por impacto, não apenas por ordem de chegada.</p></div>',unsafe_allow_html=True)
+    s3.markdown('<div class="card"><b>SMART GROWTH</b><div class="big">Receita incremental</div><p class="muted">Criar oportunidades via base instalada, recorrência, reativação, cross-sell e upsell.</p></div>',unsafe_allow_html=True)
+
+    st.markdown('### 3. Roteiro de 20 minutos')
+    agenda=pd.DataFrame([
+        ['0–3 min','Diagnóstico','Cenário, gargalos e risco da operação reativa'],
+        ['3–5 min','Visão','Apresentar os três motores conectados'],
+        ['5–9 min','Smart Workflow','Produtividade e redução do tempo até primeiro contato'],
+        ['9–12 min','Smart Priority','Fila por impacto e gestão de SLA'],
+        ['12–15 min','Smart Growth','Nova receita além dos chamados recebidos'],
+        ['15–18 min','Demo','Processar solicitação → fila → Account 360 → Growth'],
+        ['18–20 min','30 dias + KPIs','Plano de implantação e medição']
+    ],columns=['Tempo','Bloco','Mensagem'])
+    st.dataframe(agenda,use_container_width=True,hide_index=True)
+
+    st.markdown('### 4. Primeiros 30 dias')
+    plan=pd.DataFrame([
+        ['Dias 1–5','Baseline + SLAs','Mapear funil, tempos, perdas e motivos'],
+        ['Dias 6–10','Fila inteligente piloto','Score inicial + gestão diária por exceção'],
+        ['Dias 11–20','Cadência + cockpit','Follow-up D+2/D+5 + dashboard do coordenador'],
+        ['Dias 21–30','Growth Engine piloto','Reativação/cross-sell em contas selecionadas']
+    ],columns=['Período','Prioridade','Entrega'])
+    st.dataframe(plan,use_container_width=True,hide_index=True)
+
+    st.markdown('### 5. Indicadores')
+    k1,k2,k3,k4=st.columns(4)
+    k1.metric('Velocidade','1º contato / SLA')
+    k2.metric('Conversão','Win rate / ciclo')
+    k3.metric('Produtividade','Oportunidades / rep')
+    k4.metric('Growth','Receita incremental')
+    st.caption('Também acompanhar: follow-up compliance, pipeline prioritário, oportunidades proativas e revenue at risk.')
+
+    st.markdown('### Fechamento sugerido')
+    st.markdown('<div class="reco"><b>“Meu objetivo não seria colocar mais uma ferramenta para o time usar. Seria reduzir as decisões operacionais repetitivas para que as três pessoas tenham mais tempo para vender — com prioridade, cadência e visão de crescimento.”</b></div>',unsafe_allow_html=True)
+
+st.markdown('---'); st.caption('Inside Sales Smart Hub V6 • MVP demonstrativo • dados 100% fictícios e anonimizados • lógica inspirada na estrutura operacional, sem exposição de informações comerciais reais')
