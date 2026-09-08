@@ -2,8 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 
-st.set_page_config(page_title='Inside Sales Smart Hub V6', page_icon='⚡', layout='wide')
+st.set_page_config(page_title='Inside Sales Smart Hub V7', page_icon='⚡', layout='wide')
 
 st.markdown('''
 <style>
@@ -37,15 +44,16 @@ CUSTOMERS = pd.DataFrame([
 ], columns=['Cliente','Vendedor','Fat_2024','Fat_2025','Fat_2026_YTD','Base_Instalada','Limite_Credito','Credito_Livre','Dias_Ultima_Compra','Regiao'])
 
 STOCK = pd.DataFrame([
-    ['DMO-1001','Kit Preventivo Alpha','Peças',46,12,0,8900],
-    ['DMO-1002','Sensor de Fluxo Pro','Sensores',18,24,4,12700],
-    ['DMO-1003','Bateria Backup Plus','Acessórios',7,16,0,7600],
-    ['DMO-1004','Módulo Eletrônico X','Módulos',3,9,2,21400],
-    ['DMO-1005','Filtro Performance','Consumíveis',124,40,0,1850],
-    ['DMO-1006','Válvula Inspiratória','Peças',0,18,6,9400],
-    ['DMO-1007','Contrato Preventivo 12M','Serviços',999,0,0,32500],
-    ['DMO-1008','Upgrade Performance','Upgrades',999,0,0,44800],
-], columns=['SKU','Descricao','Familia','Estoque_Livre','Transito','Qualidade','Preco_Demo'])
+    ['DMO-1001','Kit Preventivo Alpha','Peças',46,12,0,16400,.18,7350],
+    ['DMO-1002','Sensor de Fluxo Pro','Sensores',18,24,4,23800,.15,10150],
+    ['DMO-1003','Bateria Backup Plus','Acessórios',7,16,0,14200,.12,6100],
+    ['DMO-1004','Módulo Eletrônico X','Módulos',3,9,2,39600,.10,18800],
+    ['DMO-1005','Filtro Performance','Consumíveis',124,40,0,3450,.20,1350],
+    ['DMO-1006','Válvula Inspiratória','Peças',0,18,6,17600,.16,7700],
+    ['DMO-1007','Contrato Preventivo 12M','Serviços',999,0,0,48500,.08,21400],
+    ['DMO-1008','Upgrade Performance','Upgrades',999,0,0,72800,.10,32600],
+], columns=['SKU','Descricao','Familia','Estoque_Livre','Transito','Qualidade','Preco_Lista','Desconto_Max','COGS_Demo'])
+STOCK['Preco_Demo']=(STOCK['Preco_Lista']*(1-STOCK['Desconto_Max'])).round(2)
 
 BASE = pd.DataFrame([
     ['Hospital Horizonte','Equipamento A',10,2019,14,'DMO-1001'],['Hospital Horizonte','Equipamento B',8,2021,9,'DMO-1002'],
@@ -72,6 +80,80 @@ QUOTES = pd.DataFrame([
 
 def brl(v): return f"R$ {v:,.0f}".replace(',', 'X').replace('.', ',').replace('X','.')
 
+def brl2(v): return f"R$ {v:,.2f}".replace(',', 'X').replace('.', ',').replace('X','.')
+
+def growth_for_customer(cliente, requested_sku):
+    base_cli=BASE[BASE.Cliente==cliente]
+    candidates=[]
+    for _, row in base_cli.iterrows():
+        if row.SKU_Recorrente != requested_sku and row.Meses_Desde_Compra >= 12:
+            prod=STOCK[STOCK.SKU==row.SKU_Recorrente]
+            if len(prod) and int(prod.iloc[0].Estoque_Livre)>0:
+                p=prod.iloc[0]
+                candidates.append({
+                    'tipo':'CROSS-SELL','sku':p.SKU,'produto':p.Descricao,
+                    'motivo':f"Base instalada com {int(row.Qtd)} equipamentos e recorrência há {int(row.Meses_Desde_Compra)} meses.",
+                    'score':92,'qtd':max(1,min(5,int(round(row.Qtd*.25))))
+                })
+    upsell_map={'DMO-1001':'DMO-1007','DMO-1002':'DMO-1008','DMO-1003':'DMO-1008','DMO-1005':'DMO-1001'}
+    upsku=upsell_map.get(requested_sku)
+    if upsku:
+        p=STOCK[STOCK.SKU==upsku].iloc[0]
+        candidates.append({'tipo':'UPSELL','sku':p.SKU,'produto':p.Descricao,
+                           'motivo':'Alternativa de maior valor associada ao perfil demonstrativo da conta e à base instalada.',
+                           'score':78,'qtd':1})
+    if not candidates:
+        available=STOCK[(STOCK.SKU!=requested_sku)&(STOCK.Estoque_Livre>0)].copy()
+        p=available.sort_values(['Preco_Lista','Estoque_Livre'],ascending=[False,False]).iloc[0]
+        candidates.append({'tipo':'CROSS-SELL','sku':p.SKU,'produto':p.Descricao,
+                           'motivo':'Produto complementar identificado pelo perfil demonstrativo da conta.',
+                           'score':65,'qtd':1})
+    return sorted(candidates,key=lambda x:x['score'],reverse=True)[0]
+
+def generate_proposal_pdf(cliente, vendedor, items, proposta_no):
+    buf=BytesIO()
+    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=15*mm,bottomMargin=15*mm)
+    styles=getSampleStyleSheet()
+    title=ParagraphStyle('title2',parent=styles['Heading1'],fontName='Helvetica-Bold',fontSize=18,textColor=colors.HexColor('#0877BE'),alignment=TA_CENTER,spaceAfter=8)
+    h=ParagraphStyle('h',parent=styles['Heading2'],fontName='Helvetica-Bold',fontSize=10,textColor=colors.HexColor('#0877BE'),spaceBefore=8,spaceAfter=5)
+    body=ParagraphStyle('body2',parent=styles['BodyText'],fontSize=9,leading=12)
+    small=ParagraphStyle('small',parent=styles['BodyText'],fontSize=7.5,leading=10,textColor=colors.HexColor('#555555'))
+    story=[]
+    story.append(Paragraph('SMART HUB - PROPOSTA COMERCIAL DEMONSTRATIVA',title))
+    story.append(Paragraph('<b>DADOS 100% FICTÍCIOS / NÃO UTILIZAR COM CLIENTES</b>',ParagraphStyle('warn',parent=body,textColor=colors.HexColor('#B42318'),alignment=TA_CENTER)))
+    story.append(Spacer(1,6*mm))
+    date=datetime.now().strftime('%d/%m/%Y')
+    story.append(Paragraph(f'<b>Proposta Nº:</b> {proposta_no}<br/><b>Data:</b> {date}<br/><b>CLIENTE:</b> {cliente}<br/><b>CNPJ:</b> 00.000.000/0000-00<br/><b>ENDEREÇO:</b> Endereço demonstrativo - São Paulo/SP',body))
+    story.append(Spacer(1,5*mm))
+    total=sum(i['qtd']*i['unit'] for i in items)
+    desc=' + '.join([f"{i['produto']} - {i['qtd']} unidade(s)" for i in items])
+    box=Table([[Paragraph(f'<b>{desc}</b>',body)],[Paragraph(f'<b>VALOR TOTAL DA VENDA: {brl2(total)}</b>',body)]],colWidths=[170*mm])
+    box.setStyle(TableStyle([('BOX',(0,0),(-1,-1),1.5,colors.HexColor('#245A7D')),('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),9),('BOTTOMPADDING',(0,0),(-1,-1),9)]))
+    story.append(box)
+    story.append(Spacer(1,5*mm))
+    story.append(Paragraph('Temos o prazer de encaminhar esta proposta demonstrativa. As condições comerciais foram calculadas automaticamente pelo Smart Workflow com política fictícia de lista de preços e desconto.',body))
+    story.append(Spacer(1,4*mm))
+    story.append(Paragraph(f'Atenciosamente,<br/><b>{vendedor}</b><br/>Inside Sales - Demonstração',body))
+    story.append(PageBreak())
+    story.append(Paragraph('DESCRIÇÃO COMPLETA DOS ITENS - DEMONSTRAÇÃO',title))
+    data=[['Código','Descrição','Qtde','Preço Lista','Desconto','Valor Unit.','Valor Total']]
+    for i in items:
+        data.append([i['sku'],i['produto'],str(i['qtd']),brl2(i['list_price']),f"{i['discount']*100:.0f}%",brl2(i['unit']),brl2(i['unit']*i['qtd'])])
+    data.append(['','','','','','TOTAL',brl2(total)])
+    tbl=Table(data,colWidths=[20*mm,48*mm,13*mm,24*mm,18*mm,24*mm,25*mm],repeatRows=1)
+    tbl.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#EAF5FB')),('TEXTCOLOR',(0,0),(-1,0),colors.HexColor('#123A56')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTNAME',(-2,-1),(-1,-1),'Helvetica-Bold'),('GRID',(0,0),(-1,-1),.5,colors.HexColor('#9DB6C6')),('FONTSIZE',(0,0),(-1,-1),7.5),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(2,1),(-1,-1),'RIGHT'),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]))
+    story.append(tbl)
+    story.append(Paragraph('CONDIÇÃO DE PAGAMENTO',h))
+    story.append(Paragraph(f'Pagamento demonstrativo em 01 parcela em até 30 dias do faturamento. Valor total: <b>{brl2(total)}</b>. Condição sujeita a validação de crédito na operação real.',body))
+    story.append(Paragraph('PRAZO DE ENTREGA',h))
+    story.append(Paragraph('Disponibilidade demonstrativa validada no Smart Workflow. Na operação real, o prazo deve ser confirmado no ato do pedido.',body))
+    story.append(Paragraph('VALIDADE DO PREÇO E DA PROPOSTA',h))
+    story.append(Paragraph('30 dias corridos a partir da data de emissão, exclusivamente para fins de demonstração do Business Case.',body))
+    story.append(Paragraph('OBSERVAÇÕES',h))
+    story.append(Paragraph('Valores, clientes, produtos, descontos, CNPJ e demais informações são fictícios e anonimizados. A automação de pricing deve respeitar alçadas e governança comercial reais antes de qualquer uso produtivo.',small))
+    doc.build(story)
+    return buf.getvalue()
+
 def enrich(q):
     q=q.merge(STOCK[['SKU','Estoque_Livre','Transito']],on='SKU',how='left')
     q['S_Receita']=np.clip(q['Valor']/180000*100,10,100)
@@ -95,7 +177,7 @@ def growth_engine():
     return g.sort_values(['Growth_Score','Potencial_Demo'],ascending=False)
 G=growth_engine()
 
-st.markdown('''<div class="hero"><h1>Inside Sales Smart Hub V6</h1><p>From Reactive Requests to Intelligent Revenue Growth</p><span class="pill">SMART WORKFLOW</span><span class="pill">SMART PRIORITY</span><span class="pill">SMART GROWTH</span></div>''',unsafe_allow_html=True)
+st.markdown('''<div class="hero"><h1>Inside Sales Smart Hub V7</h1><p>From Reactive Requests to Intelligent Revenue Growth</p><span class="pill">SMART WORKFLOW</span><span class="pill">SMART PRIORITY</span><span class="pill">SMART GROWTH</span></div>''',unsafe_allow_html=True)
 st.caption('MVP demonstrativo • Todos os clientes, CNPJs, SKUs, oportunidades, volumes e valores exibidos são fictícios e anonimizados.')
 
 page=st.sidebar.radio('Navegação',['Central de Decisão','Smart Workflow','Fila Inteligente','Account 360','Growth Engine','Cockpit do Coordenador','Arquitetura & Automação','Modo Apresentação'])
@@ -130,61 +212,101 @@ if page=='Central de Decisão':
     st.caption('Objetivo do hub: reduzir decisões operacionais repetitivas e aumentar o tempo efetivo de venda.')
 
 elif page=='Smart Workflow':
-    st.subheader('Smart Workflow — da solicitação bruta à oportunidade pronta')
-    st.markdown('**Entrada → Identificação → Validação → Enriquecimento → Priorização → Cadência → Gestão**')
+    st.subheader('Smart Workflow V7 — solicitação → Growth → proposta pronta')
+    st.markdown('**Entrada → Identificação → Estoque → Pricing → Smart Growth → Decisão do vendedor → Proposta automática → Cadência**')
 
     c1,c2,c3=st.columns(3)
-    c1.markdown('<div class="card"><h3>1. Capturar</h3><div class="big">E-mail / WhatsApp / CRM</div><p class="muted">Extrair cliente, CNPJ, OPP, SKU, quantidade, valor e prazo.</p></div>',unsafe_allow_html=True)
-    c2.markdown('<div class="card"><h3>2. Enriquecer</h3><div class="big">Cliente + Histórico + Estoque</div><p class="muted">Cruzar base instalada, recorrência, crédito e disponibilidade.</p></div>',unsafe_allow_html=True)
-    c3.markdown('<div class="card"><h3>3. Executar</h3><div class="big">Prioridade + Cadência</div><p class="muted">Calcular score, sugerir próxima ação e preparar follow-up.</p></div>',unsafe_allow_html=True)
+    c1.markdown('<div class="card"><h3>1. Preparar</h3><div class="big">Cliente + Estoque + Pricing</div><p class="muted">Valida conta, disponibilidade, preço lista e desconto permitido.</p></div>',unsafe_allow_html=True)
+    c2.markdown('<div class="card"><h3>2. Crescer</h3><div class="big">Smart Growth antes da proposta</div><p class="muted">Cross-sell / upsell aparece antes da cotação sair.</p></div>',unsafe_allow_html=True)
+    c3.markdown('<div class="card"><h3>3. Executar</h3><div class="big">Proposta automática</div><p class="muted">Gera PDF demonstrativo já precificado e prepara D+2 / D+5.</p></div>',unsafe_allow_html=True)
 
     st.markdown('### Simulação de nova solicitação')
     a,b,c=st.columns(3)
-    cli=a.selectbox('Cliente',CUSTOMERS.Cliente)
-    sku=b.selectbox('SKU',STOCK.SKU)
-    val=c.number_input('Valor demonstrativo',1000,500000,58000,1000)
+    cli=a.selectbox('Cliente',CUSTOMERS.Cliente.tolist(),key='wf_cli')
+    sku=b.selectbox('SKU solicitado',STOCK.SKU.tolist(),key='wf_sku')
+    qtd=c.number_input('Quantidade',1,100,2,1,key='wf_qtd')
+    s0=STOCK[STOCK.SKU==sku].iloc[0]
+    st.caption(f"Preço lista demonstrativo: {brl2(s0.Preco_Lista)} • desconto automático permitido: {s0.Desconto_Max*100:.0f}% • preço líquido: {brl2(s0.Preco_Demo)}")
 
     if st.button('Processar solicitação', type='primary'):
         s=STOCK[STOCK.SKU==sku].iloc[0]
         ac=CUSTOMERS[CUSTOMERS.Cliente==cli].iloc[0]
+        val=float(s.Preco_Demo*qtd)
         base_cli=BASE[BASE.Cliente==cli]
         hist_meses=int(base_cli.Meses_Desde_Compra.max()) if len(base_cli) else 0
-        estoque_score = 100 if s.Estoque_Livre >= 10 else (65 if s.Estoque_Livre > 0 else 5)
-        credito_score = 100 if ac.Credito_Livre >= val else (55 if ac.Credito_Livre > 0 else 5)
-        recencia_score = 90 if ac.Dias_Ultima_Compra <= 45 else (70 if ac.Dias_Ultima_Compra <= 90 else 45)
-        valor_score = min(100, max(20, val/180000*100))
-        score = int(round(valor_score*.30 + 82*.25 + estoque_score*.20 + recencia_score*.15 + credito_score*.10))
-        prioridade = 'P1 • Atender agora' if score >= 80 else ('P2 • Alta prioridade' if score >= 65 else 'P3 • Normal')
-        cross = STOCK[(STOCK.SKU != sku) & (STOCK.Estoque_Livre > 0)].sort_values('Estoque_Livre',ascending=False).iloc[0]
+        estoque_score=100 if s.Estoque_Livre>=qtd else (65 if s.Estoque_Livre>0 else 5)
+        credito_score=100 if ac.Credito_Livre>=val else (55 if ac.Credito_Livre>0 else 5)
+        recencia_score=90 if ac.Dias_Ultima_Compra<=45 else (70 if ac.Dias_Ultima_Compra<=90 else 45)
+        valor_score=min(100,max(20,val/180000*100))
+        score=int(round(valor_score*.30+82*.25+estoque_score*.20+recencia_score*.15+credito_score*.10))
+        prioridade='P1 • Atender agora' if score>=80 else ('P2 • Alta prioridade' if score>=65 else 'P3 • Normal')
+        growth=growth_for_customer(cli,sku)
+        st.session_state['wf_result']={'cli':cli,'sku':sku,'qtd':int(qtd),'score':score,'prioridade':prioridade,'growth':growth,'val':val,'hist_meses':hist_meses}
+        st.session_state['wf_growth_include']=False
 
+    r=st.session_state.get('wf_result')
+    if r and r['cli']==cli and r['sku']==sku and r['qtd']==int(qtd):
+        s=STOCK[STOCK.SKU==r['sku']].iloc[0]
+        ac=CUSTOMERS[CUSTOMERS.Cliente==r['cli']].iloc[0]
+        growth=r['growth']
         st.markdown('### Resultado do processamento')
         x1,x2,x3,x4=st.columns(4)
-        x1.metric('Priority Score',f'{score}/100',prioridade)
+        x1.metric('Priority Score',f"{r['score']}/100",r['prioridade'])
         x2.metric('Estoque livre',f"{int(s.Estoque_Livre)} un.",f"+{int(s.Transito)} em trânsito")
-        x3.metric('Crédito livre',brl(ac.Credito_Livre),'demonstrativo')
-        x4.metric('Base instalada',f"{int(ac.Base_Instalada)} eq.",f"{hist_meses} meses máx. recorrência")
+        x3.metric('Preço líquido',brl2(s.Preco_Demo),f"{s.Desconto_Max*100:.0f}% desc. automático")
+        x4.metric('Crédito livre',brl(ac.Credito_Livre),'demonstrativo')
 
         steps=[
-            f"✓ Cliente identificado — {cli}",
-            f"✓ Vendedor responsável — {ac.Vendedor}",
+            f"✓ Cliente identificado — {r['cli']} • responsável {ac.Vendedor}",
             f"✓ Histórico e base instalada consultados — {int(ac.Base_Instalada)} equipamentos",
             f"✓ Estoque validado — {s.Descricao}: {int(s.Estoque_Livre)} unidades livres",
-            f"✓ Crédito verificado — {brl(ac.Credito_Livre)} livres para solicitação de {brl(val)}",
-            f"✓ Commercial Priority Score calculado — {score}/100 • {prioridade}",
-            f"✓ Cross-sell sugerido — {cross.Descricao} • SKU {cross.SKU}",
-            "✓ Cadência preparada — contato agora • follow-up D+2 • alerta D+5"
+            f"✓ Price List aplicada — lista {brl2(s.Preco_Lista)} • desconto {s.Desconto_Max*100:.0f}% • líquido {brl2(s.Preco_Demo)}",
+            f"✓ Crédito verificado — {brl(ac.Credito_Livre)} livres para cotação de {brl2(r['val'])}",
+            f"✓ Commercial Priority Score — {r['score']}/100 • {r['prioridade']}",
+            f"✓ Smart Growth consultado antes da proposta — {growth['tipo']} encontrado",
+            "✓ Proposta comercial preparada; falta apenas a decisão sobre a oportunidade incremental"
         ]
         for item in steps:
             st.markdown(f'<div class="step-ok">{item}</div>',unsafe_allow_html=True)
 
-        st.markdown('### O que chega pronto para o vendedor')
-        r1,r2,r3=st.columns(3)
-        r1.markdown('<div class="card"><b>OPORTUNIDADE</b><p class="muted">Conta, contexto, SKU, valor e prioridade já organizados.</p></div>',unsafe_allow_html=True)
-        r2.markdown('<div class="card"><b>PRÓXIMA MELHOR AÇÃO</b><p class="muted">Orientação objetiva do que fazer primeiro e por quê.</p></div>',unsafe_allow_html=True)
-        r3.markdown('<div class="card"><b>CADÊNCIA</b><p class="muted">Follow-up preparado para evitar perda por falta de resposta.</p></div>',unsafe_allow_html=True)
+        st.markdown('### 💡 Smart Growth — oportunidade antes de gerar a proposta')
+        gp=STOCK[STOCK.SKU==growth['sku']].iloc[0]
+        gpot=gp.Preco_Demo*growth['qtd']
+        st.markdown(
+            f'<div class="reco"><b>{growth["tipo"]} IDENTIFICADO • Growth Score {growth["score"]}/100</b><br>'
+            f'<b>{growth["produto"]}</b> • SKU {growth["sku"]}<br>{growth["motivo"]}<br>'
+            f'Potencial incremental demonstrativo: <b>{brl2(gpot)}</b> • Preço líquido dentro da política fictícia: {brl2(gp.Preco_Demo)}</div>',
+            unsafe_allow_html=True
+        )
+        include=st.checkbox('Incluir esta oportunidade na proposta',value=st.session_state.get('wf_growth_include',False),key='wf_growth_include')
+        if include:
+            st.success(f"O item {growth['produto']} será incluído na proposta como oportunidade de {growth['tipo'].lower()}.")
+        else:
+            st.info('O vendedor pode seguir somente com o item solicitado. A recomendação fica registrada para aprendizado e follow-up.')
 
-        motivo = 'estoque disponível, crédito suficiente e alto potencial comercial' if ac.Credito_Livre >= val and s.Estoque_Livre > 0 else 'necessidade de validação antes do avanço'
-        st.markdown(f'<div class="reco"><b>Recomendação ao vendedor</b><br>{prioridade}. Prosseguir com contato comercial: {motivo}. Avaliar também <b>{cross.Descricao}</b> como cross-sell. O sistema prepara e recomenda; a decisão comercial final permanece humana.</div>',unsafe_allow_html=True)
+        st.markdown('### Proposta automática')
+        items=[{'sku':s.SKU,'produto':s.Descricao,'qtd':int(r['qtd']),'list_price':float(s.Preco_Lista),'discount':float(s.Desconto_Max),'unit':float(s.Preco_Demo)}]
+        if include:
+            items.append({'sku':gp.SKU,'produto':gp.Descricao,'qtd':int(growth['qtd']),'list_price':float(gp.Preco_Lista),'discount':float(gp.Desconto_Max),'unit':float(gp.Preco_Demo)})
+        total=sum(i['qtd']*i['unit'] for i in items)
+        resumo=pd.DataFrame(items)
+        resumo['Preço Lista']=resumo['list_price'].map(brl2)
+        resumo['Desconto']=resumo['discount'].map(lambda x:f'{x*100:.0f}%')
+        resumo['Preço Líquido']=resumo['unit'].map(brl2)
+        resumo['Total']=pd.Series([i['qtd']*i['unit'] for i in items]).map(brl2)
+        resumo=resumo.rename(columns={'sku':'SKU','produto':'Produto','qtd':'Qtd'})[['SKU','Produto','Qtd','Preço Lista','Desconto','Preço Líquido','Total']]
+        st.dataframe(resumo,use_container_width=True,hide_index=True)
+        p1,p2,p3=st.columns(3)
+        p1.metric('Valor da proposta',brl2(total))
+        p2.metric('Economia vs. lista',brl2(sum(i['qtd']*i['list_price'] for i in items)-total))
+        margem=(total-sum(i['qtd']*float(STOCK[STOCK.SKU==i['sku']].iloc[0].COGS_Demo) for i in items))/total if total else 0
+        p3.metric('Margem demonstrativa',f'{margem*100:.1f}%','indicador fictício')
+
+        proposal_no=f"DEMO-{datetime.now().strftime('%Y%m%d')}-{abs(hash((r['cli'],r['sku'],r['qtd'])))%10000:04d}"
+        pdf_bytes=generate_proposal_pdf(r['cli'],ac.Vendedor,items,proposal_no)
+        st.download_button('📄 GERAR / BAIXAR PROPOSTA AUTOMÁTICA',data=pdf_bytes,file_name=f'Proposta_{proposal_no}.pdf',mime='application/pdf',type='primary')
+        st.caption('Modelo demonstrativo inspirado na estrutura da proposta enviada anteriormente: capa/resumo, tabela de itens, condição de pagamento, prazo e validade. Nenhum dado comercial real é usado.')
+        st.markdown(f'<div class="reco"><b>Próxima melhor ação</b><br>{r["prioridade"]}. Proposta já precificada dentro da política demonstrativa. Após envio, criar follow-up D+2 e alerta D+5 automaticamente.</div>',unsafe_allow_html=True)
 
 elif page=='Fila Inteligente':
     st.subheader('Smart Priority — trabalhar a oportunidade certa no momento certo')
@@ -268,17 +390,20 @@ elif page=='Arquitetura & Automação':
         ['1','Solicitação recebida','E-mail / WhatsApp / CRM','Captura dos campos relevantes'],
         ['2','Identificação','CRM','Match por cliente/CNPJ e responsável'],
         ['3','Enriquecimento','CRM + ERP/SAP','Histórico + base instalada + crédito + estoque'],
-        ['4','Priorização','Motor de regras','Commercial Priority Score'],
-        ['5','Execução assistida','IA + CRM','Resumo + resposta sugerida + próxima ação'],
-        ['6','Cadência','Flow / CRM','D+2 / D+5 + alertas de SLA'],
-        ['7','Growth Engine','Dados comerciais','Reativação + cross-sell + upsell'],
-        ['8','Gestão','Dashboard','SLA + conversão + pipeline + revenue at risk']
+        ['4','Pricing','Price List + regras','Preço líquido dentro da alçada'],
+        ['5','Growth antes da proposta','Base instalada + histórico','Cross-sell / upsell contextual'],
+        ['6','Priorização','Motor de regras','Commercial Priority Score'],
+        ['7','Proposta automática','Template + pricing','PDF comercial pronto para validação'],
+        ['8','Execução assistida','IA + CRM','Resumo + resposta sugerida + próxima ação'],
+        ['9','Cadência','Flow / CRM','D+2 / D+5 + alertas de SLA'],
+        ['10','Growth Engine','Dados comerciais','Reativação + cross-sell + upsell'],
+        ['11','Gestão','Dashboard','SLA + conversão + pipeline + revenue at risk']
     ],columns=['Etapa','Evento','Origem / Motor','Saída'])
     st.dataframe(flow,use_container_width=True,hide_index=True)
 
     st.markdown('### O que eu automatizaria x o que manteria humano')
     h1,h2=st.columns(2)
-    h1.success('**Automatizar:** captura, consulta, enriquecimento, score, alertas, cadência, recomendações e dashboards.')
+    h1.success('**Automatizar:** captura, consulta, enriquecimento, pricing dentro da alçada, score, Smart Growth, geração de proposta, alertas, cadência, recomendações e dashboards.')
     h2.warning('**Manter humano:** aprovação de crédito, exceções de pricing, criação definitiva de cliente e decisão final de negociação.')
 
 elif page=='Modo Apresentação':
@@ -297,10 +422,10 @@ elif page=='Modo Apresentação':
     agenda=pd.DataFrame([
         ['0–3 min','Diagnóstico','Cenário, gargalos e risco da operação reativa'],
         ['3–5 min','Visão','Apresentar os três motores conectados'],
-        ['5–9 min','Smart Workflow','Produtividade e redução do tempo até primeiro contato'],
+        ['5–9 min','Smart Workflow V7','Pricing + Smart Growth + proposta automática'],
         ['9–12 min','Smart Priority','Fila por impacto e gestão de SLA'],
         ['12–15 min','Smart Growth','Nova receita além dos chamados recebidos'],
-        ['15–18 min','Demo','Processar solicitação → fila → Account 360 → Growth'],
+        ['15–18 min','Demo','Processar → Growth → incluir/ignorar → gerar proposta PDF'],
         ['18–20 min','30 dias + KPIs','Plano de implantação e medição']
     ],columns=['Tempo','Bloco','Mensagem'])
     st.dataframe(agenda,use_container_width=True,hide_index=True)
@@ -325,4 +450,4 @@ elif page=='Modo Apresentação':
     st.markdown('### Fechamento sugerido')
     st.markdown('<div class="reco"><b>“Meu objetivo não seria colocar mais uma ferramenta para o time usar. Seria reduzir as decisões operacionais repetitivas para que as três pessoas tenham mais tempo para vender — com prioridade, cadência e visão de crescimento.”</b></div>',unsafe_allow_html=True)
 
-st.markdown('---'); st.caption('Inside Sales Smart Hub V6 • MVP demonstrativo • dados 100% fictícios e anonimizados • lógica inspirada na estrutura operacional, sem exposição de informações comerciais reais')
+st.markdown('---'); st.caption('Inside Sales Smart Hub V7 • MVP demonstrativo • dados 100% fictícios e anonimizados • lógica inspirada na estrutura operacional, sem exposição de informações comerciais reais')
