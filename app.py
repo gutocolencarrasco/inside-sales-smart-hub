@@ -466,7 +466,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 16</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 16.2</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Activity & Salesforce Sync","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -482,7 +482,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V16 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V16.2 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -610,16 +610,17 @@ if page=="Executive Dashboard":
                     rc2.metric("Type",rec["type"])
                     rc3.metric("Opportunity Fit",rec["fit"])
                     st.info(f"**Why this recommendation:** {rec['reason']}")
-                    accept_rec=st.checkbox("Add recommendation to proposal",value=(str(rr["Cross Sell / Up Sell"]) not in ["","—"]),key=f"wf_accept_rec_{selected_opp}")
+                    accept_rec=st.checkbox("Add recommendation to proposal",value=False,key=f"wf_accept_rec_{selected_opp}")
                     c1,c2,c3=st.columns(3)
                     with c1:
-                        cs_item=st.text_input("Optional Item",rec["item"] if accept_rec else "—",key=f"wf_cs_{selected_opp}")
+                        cs_item=st.text_input("Optional Item",rec["item"],key=f"wf_cs_{selected_opp}")
                     with c2:
-                        cs_qty=st.number_input("Optional Qty",min_value=0,value=(rec["qty"] if accept_rec else 0),step=1,key=f"wf_csq_{selected_opp}")
+                        cs_qty=st.number_input("Suggested Qty",min_value=0,value=int(rec["qty"]),step=1,key=f"wf_csq_{selected_opp}")
                     with c3:
-                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=(rec["unit"] if accept_rec else 0.0),step=100.0,key=f"wf_csu_{selected_opp}")
+                        cs_unit=st.number_input("Suggested Unit Price (R$)",min_value=0.0,value=float(rec["unit"]),step=100.0,key=f"wf_csu_{selected_opp}")
+                    st.caption("Quantity and price are prefilled by the recommendation engine. The seller can edit them before adding the item to the proposal.")
 
-                    projected=qty*unit+cs_qty*cs_unit
+                    projected=qty*unit+(cs_qty*cs_unit if accept_rec else 0)
                     st.info(f"Projected opportunity value: {brl(projected)}")
 
                     b1,b2=st.columns([1,1])
@@ -630,8 +631,8 @@ if page=="Executive Dashboard":
                                 {
                                     "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
                                     "SF Stage":sf_stage,"Action":action,"Next FUP":next_fup,
-                                    "Description":description,"Cross Sell / Up Sell":cs_item,
-                                    "Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit
+                                    "Description":description,"Cross Sell / Up Sell":(cs_item if accept_rec else "—"),
+                                    "Cross Sell Qty":(cs_qty if accept_rec else 0),"Cross Sell Unit Price":(cs_unit if accept_rec else 0.0)
                                 },
                                 action
                             )
@@ -642,10 +643,10 @@ if page=="Executive Dashboard":
                         pr["Main Item"]=main_item; pr["Quantity"]=qty; pr["Unit Price"]=unit
                         pr["Items in Quote"]=f"{main_item} — {qty} un."
                         pr["Value"]=qty*unit
-                        pr["Cross Sell / Up Sell"]=cs_item; pr["Optional Value"]=cs_qty*cs_unit
+                        pr["Cross Sell / Up Sell"]=cs_item if accept_rec else "—"; pr["Optional Value"]=(cs_qty*cs_unit if accept_rec else 0)
                         st.download_button(
                             "Generate Proposal PDF",
-                            proposal_pdf(pr,include_optional=(cs_qty>0),revision=False),
+                            proposal_pdf(pr,include_optional=(accept_rec and cs_qty>0),revision=False),
                             file_name=f"proposal_demo_{selected_opp}.pdf",
                             mime="application/pdf",
                             key=f"wf_pdf_{selected_opp}"
@@ -702,16 +703,17 @@ if page=="Executive Dashboard":
                     rc2.metric("Type",rec["type"])
                     rc3.metric("Opportunity Fit",rec["fit"])
                     st.info(f"**Why this recommendation:** {rec['reason']}")
-                    accept_rec=st.checkbox("Add recommendation to proposal",value=(str(rr["Cross Sell / Up Sell"]) not in ["","—"]),key=f"fu_accept_rec_{selected_opp}")
+                    accept_rec=st.checkbox("Add recommendation to proposal",value=False,key=f"fu_accept_rec_{selected_opp}")
                     c1,c2,c3=st.columns(3)
                     with c1:
-                        cs_item=st.text_input("Optional Item",rec["item"] if accept_rec else "—",key=f"fu_cs_{selected_opp}")
+                        cs_item=st.text_input("Optional Item",rec["item"],key=f"fu_cs_{selected_opp}")
                     with c2:
-                        cs_qty=st.number_input("Optional Qty",min_value=0,value=(rec["qty"] if accept_rec else 0),step=1,key=f"fu_csq_{selected_opp}")
+                        cs_qty=st.number_input("Suggested Qty",min_value=0,value=int(rec["qty"]),step=1,key=f"fu_csq_{selected_opp}")
                     with c3:
-                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=(rec["unit"] if accept_rec else 0.0),step=100.0,key=f"fu_csu_{selected_opp}")
+                        cs_unit=st.number_input("Suggested Unit Price (R$)",min_value=0.0,value=float(rec["unit"]),step=100.0,key=f"fu_csu_{selected_opp}")
+                    st.caption("Quantity and price are prefilled by the recommendation engine. The seller can edit them before adding the item to the proposal.")
 
-                    projected=qty*unit+cs_qty*cs_unit
+                    projected=qty*unit+(cs_qty*cs_unit if accept_rec else 0)
                     st.info(f"Projected opportunity value: {brl(projected)}")
 
                     b1,b2=st.columns([1,1])
@@ -722,8 +724,8 @@ if page=="Executive Dashboard":
                                 {
                                     "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
                                     "SF Stage":sf_stage,"Action":action,"Next FUP":next_fup,
-                                    "Description":description,"Cross Sell / Up Sell":cs_item,
-                                    "Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit
+                                    "Description":description,"Cross Sell / Up Sell":(cs_item if accept_rec else "—"),
+                                    "Cross Sell Qty":(cs_qty if accept_rec else 0),"Cross Sell Unit Price":(cs_unit if accept_rec else 0.0)
                                 },
                                 action
                             )
@@ -734,10 +736,10 @@ if page=="Executive Dashboard":
                         pr["Main Item"]=main_item; pr["Quantity"]=qty; pr["Unit Price"]=unit
                         pr["Items in Quote"]=f"{main_item} — {qty} un."
                         pr["Value"]=qty*unit
-                        pr["Cross Sell / Up Sell"]=cs_item; pr["Optional Value"]=cs_qty*cs_unit
+                        pr["Cross Sell / Up Sell"]=cs_item if accept_rec else "—"; pr["Optional Value"]=(cs_qty*cs_unit if accept_rec else 0)
                         st.download_button(
                             "Generate Revised Proposal" if rr["SF Stage"]=="Propose" else "Generate Proposal PDF",
-                            proposal_pdf(pr,include_optional=(cs_qty>0),revision=(rr["SF Stage"]=="Propose")),
+                            proposal_pdf(pr,include_optional=(accept_rec and cs_qty>0),revision=(rr["SF Stage"]=="Propose")),
                             file_name=f"{'revised_' if rr['SF Stage']=='Propose' else ''}proposal_demo_{selected_opp}.pdf",
                             mime="application/pdf",
                             key=f"fu_pdf_{selected_opp}"
@@ -868,6 +870,47 @@ if page=="Executive Dashboard":
                         columns=["Layer","Responsibility","Operating Mode"])
         st.dataframe(bg,use_container_width=True,hide_index=True)
         st.caption("Demo architecture: Salesforce/SAP are represented as integration-ready layers; no live Philips write is claimed.")
+
+    st.markdown("### Filipe — Interaction Validation")
+    st.caption("Only customer replies generated by Filipe's proactive Growth outreach appear here. They are routed to a human seller by Commercial Load Index and do not become Salesforce opportunities until the seller validates them.")
+
+    pending_iv = pd.DataFrame(st.session_state.interaction_validation)
+    if len(pending_iv):
+        pending_iv = pending_iv[pending_iv["Status"].eq("Pending Human Validation")].copy()
+
+    # Respect the Executive Dashboard owner filter.
+    if owner != "All" and len(pending_iv):
+        pending_iv = pending_iv[pending_iv["Assigned Validator"].eq(owner)].copy()
+
+    if len(pending_iv):
+        iv_summary = pending_iv[[
+            "Validation ID","Customer","Growth Type","Estimated Potential",
+            "Assigned Validator","Commercial Load Index","Received","Status"
+        ]].copy()
+        iv_summary["Estimated Potential"] = iv_summary["Estimated Potential"].map(brl)
+        st.dataframe(iv_summary,use_container_width=True,hide_index=True,height=170)
+
+        iv_pick = st.selectbox(
+            "Customer interaction",
+            pending_iv["Validation ID"].tolist(),
+            format_func=lambda x: f"{pending_iv.loc[pending_iv['Validation ID']==x,'Customer'].iloc[0]} — {x}",
+            key=f"dashboard_iv_{owner}"
+        )
+        iv_rec = next(x for x in st.session_state.interaction_validation if x["Validation ID"] == iv_pick)
+
+        with st.container(border=True):
+            st.markdown(f"**{iv_rec['Customer']} — Pending Human Validation**")
+            c1,c2,c3 = st.columns(3)
+            c1.metric("Estimated Potential",brl(iv_rec["Estimated Potential"]))
+            c2.metric("Assigned to",iv_rec["Assigned Validator"])
+            c3.metric("Commercial Load Index",iv_rec["Commercial Load Index"])
+            st.markdown("**Filipe:** " + iv_rec["Filipe Message"])
+            st.markdown("**Customer:** " + iv_rec["Customer Reply"])
+            st.info("**AI Summary:** " + iv_rec["AI Summary"])
+            st.caption("Decision remains in the Interaction Validation tab: Validate & Create Opportunity or Keep / Dismiss as Growth.")
+    else:
+        # User requested the area to remain effectively blank when no case exists for the selected seller.
+        st.caption("No interactions pending validation for this seller.")
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
     q=open_od.sort_values('Score',ascending=False).head(8).copy()
