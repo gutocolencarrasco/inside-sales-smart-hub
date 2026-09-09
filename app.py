@@ -81,6 +81,41 @@ def queue_sort(df):
         ascending=[False,False,False,False]
     ).drop(columns=["_sla_rank","_value_num","_wait_num"])
 
+
+def cross_sell_recommendation(row):
+    """Explainable fictitious recommendation based on demo customer profile signals."""
+    main=str(row.get("Main Item",""))
+    mapping={
+        "Patient Circuit":("Preventive Kit","Cross Sell","High Fit",
+            "The customer profile indicates recurring use of patient circuits and preventive consumables. Adding a preventive kit can reduce emergency replacement risk and support equipment availability."),
+        "Flow Sensor":("Preventive Kit","Cross Sell","High Fit",
+            "Purchase recurrence in the same maintenance family suggests a preventive kit as a complementary item, reducing the risk of an additional intervention."),
+        "Backup Battery":("Service Contract","Cross Sell","Medium Fit",
+            "The installed-base profile suggests value in combining backup power availability with planned service coverage and greater maintenance predictability."),
+        "Inspiratory Valve":("Patient Circuit","Cross Sell","High Fit",
+            "The requested component is commonly associated with the same respiratory circuit maintenance context. The additional item can reduce a second purchasing cycle."),
+        "Electronic Module":("Service Contract","Cross Sell","High Fit",
+            "The higher-complexity component and service history indicate an opportunity to offer planned service coverage and reduce unplanned downtime."),
+        "Preventive Kit":("Filter Kit","Cross Sell","High Fit",
+            "The customer's preventive-maintenance profile indicates complementary filter consumption. Including the filter kit can consolidate the maintenance need in one commercial cycle."),
+        "Consumables Pack":("Preventive Kit","Up Sell","Medium Fit",
+            "Recurring consumables demand indicates potential to broaden the preventive package and increase stock coverage for the customer."),
+        "Service Contract":("Upgrade Package","Up Sell","Medium Fit",
+            "The service relationship creates an opportunity to evaluate installed-base modernization and additional coverage."),
+        "Filter Kit":("Preventive Kit","Cross Sell","High Fit",
+            "The maintenance profile suggests filters and preventive kits are complementary needs within the same service cycle."),
+        "Accessory Set":("Service Contract","Cross Sell","Medium Fit",
+            "The installed-base and accessory demand suggest an opportunity to add planned service coverage and improve equipment availability.")
+    }
+    item,kind,fit,reason=mapping.get(main,(
+        "Preventive Kit","Cross Sell","Medium Fit",
+        "Purchase history, installed-base profile and portfolio affinity indicate a complementary preventive-maintenance opportunity."
+    ))
+    # Fictitious commercial suggestion; seller retains decision.
+    qty=max(1,min(int(row.get("Quantity",1)),3))
+    unit=3900.0 if "Kit" in item else 7200.0
+    return {"item":item,"type":kind,"fit":fit,"reason":reason,"qty":qty,"unit":unit}
+
 def create_change_ticket(opp_id, owner, changes, action_text):
     """Demo Salesforce mirror: creates a traceable activity/ticket for API sync."""
     if "activity_log" not in st.session_state:
@@ -242,7 +277,7 @@ def build_scaled_opportunity_scenario():
                 "Description":f"New inbound opportunity automatically created from {sources[(i+owner_i)%3]}.",
                 "Demand Description":f"Inbound request received via {sources[(i+owner_i)%3]} for {main_item}.",
                 "Channel Detail":sources[(i+owner_i)%3],
-                "OPP Open Date":opened,"Next FUP":next_fup_date(0)
+                "OPP Open Date":opened,"Next FUP":next_fup_date(0),"Opportunity Source":"Inbound","Growth Conversation":"—"
             })
 
         # 70 unique FUP customers per seller — Develop or Propose only
@@ -279,7 +314,7 @@ def build_scaled_opportunity_scenario():
                 "Description":"Commercial interaction already started. Follow-up is active.",
                 "Demand Description":f"Commercial follow-up for {main_item}.",
                 "Channel Detail":sources[(i+owner_i+1)%3],
-                "OPP Open Date":opened,"Next FUP":next_fup_date(waiting)
+                "OPP Open Date":opened,"Next FUP":next_fup_date(waiting),"Opportunity Source":"Inbound","Growth Conversation":"—"
             })
     return pd.DataFrame(rows)
 
@@ -290,6 +325,19 @@ if "activity_log" not in st.session_state:
     st.session_state.activity_log=[]
 if "sf_sync_queue" not in st.session_state:
     st.session_state.sf_sync_queue=[]
+if "interaction_validation" not in st.session_state:
+    st.session_state.interaction_validation=[
+        {"Validation ID":"IV-001","Customer":"Instituto Solaris","Growth Type":"Service Contract","Estimated Potential":42000.0,
+         "Filipe Message":"Olá, Mariana. Pela base instalada de vocês, identificamos uma oportunidade de contrato de serviço para aumentar a disponibilidade dos equipamentos, reduzir paradas não planejadas e trazer maior previsibilidade à manutenção. Posso te apresentar rapidamente essa possibilidade?",
+         "Customer Reply":"Sim, temos interesse. Hoje temos 12 equipamentos e estamos justamente avaliando alternativas para manutenção. Pode nos explicar melhor como funcionaria?",
+         "AI Summary":"Customer demonstrated explicit interest in a service contract and informed an installed base of 12 units. Commercial qualification is recommended before creating a Salesforce opportunity.",
+         "Assigned Validator":"Ana","Commercial Load Index":34,"Status":"Pending Human Validation","Received":datetime.now().strftime("%d/%m/%Y %H:%M")},
+        {"Validation ID":"IV-002","Customer":"Hospital Vértice","Growth Type":"Preventive Kit","Estimated Potential":28500.0,
+         "Filipe Message":"Olá, Carlos. Identificamos pela sua base instalada uma oportunidade de reforçar o estoque preventivo e reduzir risco de parada por reposição emergencial. Posso avaliar essa necessidade com você?",
+         "Customer Reply":"Pode sim. Tivemos duas reposições urgentes nos últimos meses. Me envie uma sugestão do que deveríamos manter disponível.",
+         "AI Summary":"Customer reported recent emergency replacements and requested a preventive-stock recommendation. Response indicates a qualified commercial signal.",
+         "Assigned Validator":"Bruno","Commercial Load Index":39,"Status":"Pending Human Validation","Received":datetime.now().strftime("%d/%m/%Y %H:%M")}
+    ]
 
 opps=st.session_state.opps
 
@@ -418,8 +466,8 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 15</span>',unsafe_allow_html=True)
-page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 16</span>',unsafe_allow_html=True)
+page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Activity & Salesforce Sync","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
 ss=stage_summary(opps)
@@ -434,7 +482,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V15 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V16 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -514,7 +562,7 @@ if page=="Executive Dashboard":
     qc3.metric("Orders / Won",orderwon_count,"Order Promised / Win Closed")
     qc4.metric("Lost",lost_count,"Excluded from open pipeline")
 
-    tabs=st.tabs(["Workflow","FUP","Growth","Orders / Won","Lost"])
+    tabs=st.tabs(["Workflow","FUP","Growth","Interaction Validation","Orders / Won","Lost"])
 
     # ---------------- Workflow ----------------
     with tabs[0]:
@@ -541,6 +589,8 @@ if page=="Executive Dashboard":
                 with st.container(border=True):
                     st.markdown(f"### Opportunity Editor — {rr.Customer}")
                     st.caption(f"OPP {int(rr.OPP)} • Opened {pd.to_datetime(rr['OPP Open Date']).strftime('%d/%m/%Y')} • Current stage: {rr['SF Stage']}")
+                    opp_logs=[x for x in st.session_state.activity_log if int(x.get("OPP",-1))==int(rr.OPP)]
+                    st.caption(f"Last Salesforce Activity: {opp_logs[0]['SF Sync Status']} • {opp_logs[0]['Date/Time']}" if opp_logs else "Last Salesforce Activity: No pending changes")
                     e1,e2,e3=st.columns(3)
                     with e1:
                         main_item=st.text_input("Main Item",str(rr["Main Item"]),key=f"wf_item_{selected_opp}")
@@ -553,14 +603,21 @@ if page=="Executive Dashboard":
                     with e3:
                         description=st.text_area("Description / Commercial Notes",str(rr["Description"]),height=132,key=f"wf_desc_{selected_opp}")
 
-                    st.markdown("#### Cross Sell / Up Sell")
+                    st.markdown("#### AI Cross Sell / Up Sell Recommendation")
+                    rec=cross_sell_recommendation(rr)
+                    rc1,rc2,rc3=st.columns(3)
+                    rc1.metric("Recommendation",rec["item"])
+                    rc2.metric("Type",rec["type"])
+                    rc3.metric("Opportunity Fit",rec["fit"])
+                    st.info(f"**Why this recommendation:** {rec['reason']}")
+                    accept_rec=st.checkbox("Add recommendation to proposal",value=(str(rr["Cross Sell / Up Sell"]) not in ["","—"]),key=f"wf_accept_rec_{selected_opp}")
                     c1,c2,c3=st.columns(3)
                     with c1:
-                        cs_item=st.text_input("Optional Item",str(rr["Cross Sell / Up Sell"]),key=f"wf_cs_{selected_opp}")
+                        cs_item=st.text_input("Optional Item",rec["item"] if accept_rec else "—",key=f"wf_cs_{selected_opp}")
                     with c2:
-                        cs_qty=st.number_input("Optional Qty",min_value=0,value=int(rr["Cross Sell Qty"]),step=1,key=f"wf_csq_{selected_opp}")
+                        cs_qty=st.number_input("Optional Qty",min_value=0,value=(rec["qty"] if accept_rec else 0),step=1,key=f"wf_csq_{selected_opp}")
                     with c3:
-                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=float(rr["Cross Sell Unit Price"]),step=100.0,key=f"wf_csu_{selected_opp}")
+                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=(rec["unit"] if accept_rec else 0.0),step=100.0,key=f"wf_csu_{selected_opp}")
 
                     projected=qty*unit+cs_qty*cs_unit
                     st.info(f"Projected opportunity value: {brl(projected)}")
@@ -623,6 +680,8 @@ if page=="Executive Dashboard":
                 with st.container(border=True):
                     st.markdown(f"### Opportunity Editor — {rr.Customer}")
                     st.caption(f"OPP {int(rr.OPP)} • Opened {pd.to_datetime(rr['OPP Open Date']).strftime('%d/%m/%Y')} • Current stage: {rr['SF Stage']}")
+                    opp_logs=[x for x in st.session_state.activity_log if int(x.get("OPP",-1))==int(rr.OPP)]
+                    st.caption(f"Last Salesforce Activity: {opp_logs[0]['SF Sync Status']} • {opp_logs[0]['Date/Time']}" if opp_logs else "Last Salesforce Activity: No pending changes")
                     e1,e2,e3=st.columns(3)
                     with e1:
                         main_item=st.text_input("Main Item",str(rr["Main Item"]),key=f"fu_item_{selected_opp}")
@@ -636,14 +695,21 @@ if page=="Executive Dashboard":
                     with e3:
                         description=st.text_area("Description / Commercial Notes",str(rr["Description"]),height=132,key=f"fu_desc_{selected_opp}")
 
-                    st.markdown("#### Cross Sell / Up Sell + Proposal")
+                    st.markdown("#### AI Cross Sell / Up Sell Recommendation")
+                    rec=cross_sell_recommendation(rr)
+                    rc1,rc2,rc3=st.columns(3)
+                    rc1.metric("Recommendation",rec["item"])
+                    rc2.metric("Type",rec["type"])
+                    rc3.metric("Opportunity Fit",rec["fit"])
+                    st.info(f"**Why this recommendation:** {rec['reason']}")
+                    accept_rec=st.checkbox("Add recommendation to proposal",value=(str(rr["Cross Sell / Up Sell"]) not in ["","—"]),key=f"fu_accept_rec_{selected_opp}")
                     c1,c2,c3=st.columns(3)
                     with c1:
-                        cs_item=st.text_input("Optional Item",str(rr["Cross Sell / Up Sell"]),key=f"fu_cs_{selected_opp}")
+                        cs_item=st.text_input("Optional Item",rec["item"] if accept_rec else "—",key=f"fu_cs_{selected_opp}")
                     with c2:
-                        cs_qty=st.number_input("Optional Qty",min_value=0,value=int(rr["Cross Sell Qty"]),step=1,key=f"fu_csq_{selected_opp}")
+                        cs_qty=st.number_input("Optional Qty",min_value=0,value=(rec["qty"] if accept_rec else 0),step=1,key=f"fu_csq_{selected_opp}")
                     with c3:
-                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=float(rr["Cross Sell Unit Price"]),step=100.0,key=f"fu_csu_{selected_opp}")
+                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=(rec["unit"] if accept_rec else 0.0),step=100.0,key=f"fu_csu_{selected_opp}")
 
                     projected=qty*unit+cs_qty*cs_unit
                     st.info(f"Projected opportunity value: {brl(projected)}")
@@ -694,8 +760,71 @@ if page=="Executive Dashboard":
             if st.button("Generate Text",key="gbutton_v15"):
                 st.text_area("Suggested WhatsApp / Email",growth_message(g.loc[gx]),height=110)
 
-    # ---------------- Orders / Won ----------------
+    # ---------------- Interaction Validation ----------------
     with tabs[3]:
+        st.caption("Filipe Growth replies are reviewed by a human seller before any Salesforce opportunity is created.")
+        validations=pd.DataFrame(st.session_state.interaction_validation)
+        pending=validations[validations["Status"]=="Pending Human Validation"].copy() if len(validations) else pd.DataFrame()
+        if owner!="All" and len(pending): pending=pending[pending["Assigned Validator"]==owner]
+        if len(pending):
+            vv=pending[["Validation ID","Customer","Growth Type","Estimated Potential","Assigned Validator","Commercial Load Index","Status","Received"]].copy()
+            vv["Estimated Potential"]=vv["Estimated Potential"].map(brl)
+            st.dataframe(vv,use_container_width=True,hide_index=True,height=220)
+            selected_id=st.selectbox("Interaction to validate",pending["Validation ID"].tolist(),
+                format_func=lambda x:f"{x} — {pending.loc[pending['Validation ID']==x,'Customer'].iloc[0]}",key=f"iv_{owner}")
+            rec=next(x for x in st.session_state.interaction_validation if x["Validation ID"]==selected_id)
+            with st.container(border=True):
+                st.markdown(f"### Interaction Validation — {rec['Customer']}")
+                c1,c2,c3=st.columns(3)
+                c1.metric("Estimated Potential",brl(rec["Estimated Potential"]))
+                c2.metric("Assigned Validator",rec["Assigned Validator"])
+                c3.metric("Commercial Load Index",rec["Commercial Load Index"])
+                st.caption("Validation routing uses seller capacity / Commercial Load Index, not Priority Score.")
+                st.markdown("#### Full Filipe ↔ Customer Conversation")
+                st.markdown(f"**Filipe:** {rec['Filipe Message']}")
+                st.markdown(f"**Customer:** {rec['Customer Reply']}")
+                st.info(f"**AI Summary:** {rec['AI Summary']}")
+                q1,q2=st.columns(2)
+                with q1:
+                    note=st.text_area("Human Qualification / Validation Note","Customer response indicates a valid commercial opportunity.",key=f"iv_note_{selected_id}")
+                with q2:
+                    sellers=["Ana","Bruno","Carla"]
+                    validator=rec["Assigned Validator"] if rec["Assigned Validator"] in sellers else "Ana"
+                    proposed_owner=st.selectbox("Opportunity Owner",sellers,index=sellers.index(validator),key=f"iv_owner_{selected_id}")
+                    estimated_value=st.number_input("Validated Estimated Value (R$)",min_value=0.0,value=float(rec["Estimated Potential"]),step=500.0,key=f"iv_value_{selected_id}")
+                b1,b2=st.columns(2)
+                with b1:
+                    if st.button("Validate & Create Opportunity",type="primary",key=f"iv_create_{selected_id}"):
+                        current=st.session_state.opps
+                        new_id=int(current["OPP"].max())+1; score=78
+                        new_row={"OPP":new_id,"Customer":rec["Customer"],"Owner":proposed_owner,"Seller":proposed_owner,
+                            "Priority":priority(score),"Score":score,"Revenue":"Alta","Conversion":"Alta","Inventory":"Normal","SLA":"Alta","Credit":"Normal",
+                            "Main Item":rec["Growth Type"],"Quantity":1,"Unit Price":float(estimated_value),"Value":float(estimated_value),
+                            "Items in Quote":f"{rec['Growth Type']} — 1 un.","Cross Sell / Up Sell":"—","Cross Sell Qty":0,"Cross Sell Unit Price":0.0,
+                            "Optional Value":0.0,"Total Opportunity Value":float(estimated_value),"SF Stage":"Identify","FUP Status":"Not Started","Days Waiting":0,
+                            "Source":"Filipe Growth","Needs Review":False,"Action":"Human-qualified Growth opportunity — first commercial follow-up",
+                            "Description":note,"Demand Description":rec["AI Summary"],"Channel Detail":"Filipe Growth Interaction",
+                            "OPP Open Date":date.today(),"Next FUP":next_fup_date(0),"Opportunity Source":"Growth / Filipe",
+                            "Growth Conversation":f"Filipe: {rec['Filipe Message']} | Customer: {rec['Customer Reply']}"}
+                        st.session_state.opps=pd.concat([current,pd.DataFrame([new_row])],ignore_index=True)
+                        for item in st.session_state.interaction_validation:
+                            if item["Validation ID"]==selected_id:
+                                item["Status"]="Converted to Opportunity"; item["Created OPP"]=new_id
+                        create_change_ticket(new_id,proposed_owner,{"SF Stage":("No OPP","Identify")},"Human validated Filipe interaction and created Salesforce opportunity")
+                        st.success(f"OPP {new_id} created in Identify and routed to {proposed_owner}'s Workflow with the full conversation attached.")
+                        st.rerun()
+                with b2:
+                    if st.button("Keep / Dismiss as Growth",key=f"iv_dismiss_{selected_id}"):
+                        for item in st.session_state.interaction_validation:
+                            if item["Validation ID"]==selected_id:
+                                item["Status"]="Kept / Dismissed as Growth"; item["Validation Note"]=note
+                        st.success("No Salesforce opportunity created. Interaction remains recorded as Growth.")
+                        st.rerun()
+        else:
+            st.info("No customer interactions are awaiting human validation for this filter.")
+
+    # ---------------- Orders / Won ----------------
+    with tabs[4]:
         st.caption("Order Promised and Win Closed leave active FUP and are reported here.")
         ow=queue_sort(od[od["SF Stage"].isin(["Order Promised","Win Closed"])].copy())
         if len(ow):
@@ -710,7 +839,7 @@ if page=="Executive Dashboard":
             st.info("No Order Promised / Win Closed opportunities for this filter.")
 
     # ---------------- Lost ----------------
-    with tabs[4]:
+    with tabs[5]:
         st.caption("Lost Closed opportunities leave active FUP. Their values are excluded from Open Pipeline, Revenue at Risk and active opportunity totals.")
         lo=od[od["SF Stage"].eq("Lost Closed")].copy()
         if len(lo):
@@ -724,72 +853,21 @@ if page=="Executive Dashboard":
         else:
             st.info("No Lost Closed opportunities for this filter.")
 
-    # Salesforce activity / sync traceability
-    with st.expander("Salesforce Activity / Call Log",expanded=False):
-        log_df=pd.DataFrame(st.session_state.activity_log)
-        if len(log_df):
-            st.dataframe(log_df,use_container_width=True,hide_index=True,height=260)
-        else:
-            st.caption("No changes yet. Every Save creates a traceable Salesforce call/ticket and queues the update for API sync.")
 
-    st.markdown('<div class="section-title">AI Demand Intake & Agent Orchestration</div>',unsafe_allow_html=True)
-    st.caption("The seller does not fill a Salesforce form. The Hub interprets the incoming demand, completes the available context automatically and asks only for missing mandatory information.")
-
-    ai1,ai2=st.columns([1.45,1.0])
-    with ai1:
-        st.markdown("#### Incoming Demand")
-        incoming_text=st.text_area(
-            "Call / E-mail / WhatsApp content",
-            value="Centro Clínico Atlas solicita 3 unidades do kit preventivo com urgência para reposição.",
-            height=115,
-            key="ai_incoming_demand"
-        )
-        incoming_channel=st.selectbox("Detected / informed channel",["Service Call","Email","WhatsApp"],key="ai_incoming_channel")
-        if st.button("Run AI Intake",type="primary",key="run_ai_intake"):
-            st.session_state["ai_intake_done"]=True
-
-    with ai2:
-        st.markdown("#### Agent Status")
-        status_rows=[
-            ["CRM Agent","Ready","Account match • demand • Salesforce"],
-            ["Operations Agent","Ready","SAP inventory • credit"],
-            ["Priority Agent","Ready","Score • SLA • routing"],
-            ["Filipe","Ready","Reactive • FUP • Growth"],
-            ["Proposal Agent","Standby","Proposal when applicable"],
-        ]
-        st.dataframe(pd.DataFrame(status_rows,columns=["Agent","Status","Action"]),use_container_width=True,hide_index=True)
-
-    if st.session_state.get("ai_intake_done",False):
-        st.markdown("#### Agent Orchestration Result")
-        r1,r2,r3,r4=st.columns(4)
-        with r1:
-            st.success("CRM Agent")
-            st.markdown("**Customer:** Centro Clínico Atlas  \n**Account:** Matched ✓  \n**Demand:** Structured ✓  \n**SF Stage:** Identify")
-        with r2:
-            st.info("Operations Agent")
-            st.markdown("**Inventory:** Available ✓  \n**Credit:** Released ✓  \n**SAP:** API-ready lookup")
-        with r3:
-            st.warning("Priority Agent")
-            st.markdown("**Score:** 82 / 100  \n**Priority:** Alta  \n**Routing:** Human seller")
-        with r4:
-            st.info("Commercial Routing")
-            st.markdown("**Assigned to:** Ana  \n**Next Action:** Contact customer  \n**FUP:** Not started")
-
-        sf_record=pd.DataFrame([{
-            "Customer":"Centro Clínico Atlas",
-            "Channel":incoming_channel,
-            "Demand Type":"Part",
-            "Demand Description":incoming_text,
-            "Estimated Value":"R$ 25.000",
-            "Owner":"Ana",
-            "Salesforce Stage":"Identify",
-            "Priority Score":82,
-            "Priority":"Alta"
-        }])
-        st.markdown("##### Structured Salesforce Record")
-        st.dataframe(sf_record,use_container_width=True,hide_index=True)
-        st.success("The opportunity is prepared automatically. Human intervention is required only when mandatory information or commercial judgment is missing.")
-        st.caption("Demo behavior: Salesforce and SAP are represented as API-ready integrations; no live Philips write is claimed.")
+    st.markdown('<div class="section-title">Automatic Inbound Intake</div>',unsafe_allow_html=True)
+    st.caption("Inbound e-mail, WhatsApp and service-call demands are processed automatically in the background. No seller re-entry or manual AI Intake is required.")
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("Inbound Capture","Automatic"); c2.metric("Salesforce Stage","Identify")
+    c3.metric("Destination","Workflow"); c4.metric("Human Touch","Exceptions only")
+    st.info("Message received → customer/account match → SAP inventory & credit lookup → Priority Score → Salesforce OPP in Identify → responsible seller's Workflow.")
+    with st.expander("View background agent orchestration",expanded=False):
+        bg=pd.DataFrame([["CRM Agent","Account match + demand structuring + Salesforce record","Background / API-ready"],
+                         ["Operations Agent","SAP inventory + credit lookup","Background / API-ready"],
+                         ["Priority Agent","Priority Score + SLA + routing","Background"],
+                         ["Human Seller","Commercial judgment when required","Exception / Workflow"]],
+                        columns=["Layer","Responsibility","Operating Mode"])
+        st.dataframe(bg,use_container_width=True,hide_index=True)
+        st.caption("Demo architecture: Salesforce/SAP are represented as integration-ready layers; no live Philips write is claimed.")
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
     q=open_od.sort_values('Score',ascending=False).head(8).copy()
@@ -815,6 +893,20 @@ elif page=="Account 360":
     if len(gx):
         st.markdown('#### Filipe Growth Signals'); y=gx.copy(); y['Growth Potential']=y['Growth Potential'].map(brl); st.dataframe(y,use_container_width=True,hide_index=True)
 
+# ---------------------------- Activity & Salesforce Sync ----------------------------
+elif page=="Activity & Salesforce Sync":
+    st.markdown('<div class="section-title">Activity & Salesforce Sync</div>',unsafe_allow_html=True)
+    st.caption("Central audit trail for commercial changes, Salesforce calls and API-ready synchronization.")
+    log_df=pd.DataFrame(st.session_state.activity_log); sync_df=pd.DataFrame(st.session_state.sf_sync_queue)
+    a1,a2,a3=st.columns(3)
+    a1.metric("Activities / Calls",len(log_df)); a2.metric("API-ready Queue",len(sync_df)); a3.metric("Sync Errors",0)
+    st.markdown("### Salesforce Activity / Call Log")
+    if len(log_df): st.dataframe(log_df,use_container_width=True,hide_index=True,height=360)
+    else: st.info("No activity recorded yet. Opportunity changes and validated Growth conversions create traceable Salesforce tickets.")
+    st.markdown("### Salesforce Sync Queue")
+    if len(sync_df): st.dataframe(sync_df,use_container_width=True,hide_index=True,height=300)
+    else: st.caption("No queued updates.")
+
 # ---------------------------- Management ----------------------------
 else:
     st.markdown('<div class="section-title">Management & Governance</div>',unsafe_allow_html=True)
@@ -827,7 +919,7 @@ else:
 Incoming call / Email / WhatsApp → structured OPP in **Identify** → enrichment → Priority Score → owner. Governed **Normal OPPs ≤ R$10K** are owned by **Filipe**, including their FUP. Higher-value or higher-priority opportunities remain with human sellers.
 
 **Growth**  
-Filipe executes **30–50 proactive actions/day** across the installed-base portfolio. A Growth Signal is *not* a Salesforce OPP. Only when the customer interacts or demonstrates interest is an OPP automatically created in **Identify**.
+Filipe executes **30–50 proactive actions/day** across the installed-base portfolio. A Growth Signal is *not* a Salesforce OPP. When the customer replies, the interaction is routed by **Commercial Load Index** to a human seller for validation. Only after human approval is an OPP created in **Identify**.
 
 **Governance**  
 Pricing exceptions, credit issues, inventory constraints, out-of-policy negotiations and final commercial commitments remain under human approval. Filipe automates governed volume and preserves seller time for higher-value judgment.""")
@@ -839,7 +931,7 @@ Pricing exceptions, credit issues, inventory constraints, out-of-policy negotiat
 
 **Executive principle:** *Automate governed volume. Preserve human sellers for commercial judgment and higher-impact decisions.*
 
-**Operational rhythm:** one Executive Dashboard, one owner filter and five transactional reports: **Workflow | FUP | Growth | Orders / Won | Lost**.
+**Operational rhythm:** one Executive Dashboard, one owner filter and six transactional reports: **Workflow | FUP | Growth | Interaction Validation | Orders / Won | Lost**.
 
 **V14 transformation layer:** five coordinated agents — Filipe, CRM Agent, Priority Agent, Operations Agent and Proposal Agent — with Salesforce and SAP API-ready integration and human governance at financial-risk decisions.""")
 
