@@ -9,7 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 
-st.set_page_config(page_title="Inside Sales Smart Hub V13", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Inside Sales Smart Hub V14", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------------------- Theme ----------------------------
 st.markdown("""<style>
@@ -32,6 +32,15 @@ STAGES=["Identify","Develop","Propose","Order Promised","Win Closed","Lost Close
 OPEN_STAGES=["Identify","Develop","Propose","Order Promised"]
 ACTIVE_WORKFLOW=["Identify","Develop"]
 OWNERS=["Ana","Bruno","Carla","Filipe"]
+
+AGENTS = [
+    ["Filipe","AI Sales Agent","Assistant • Reactive Sales ≤ R$10K • FUP • Growth 30–50/day","Active"],
+    ["CRM Agent","Salesforce Orchestration","Structure demand • account match • create/update OPP • stage history","Active"],
+    ["Priority Agent","Decision Engine","Priority Score • SLA • conversion • routing","Active"],
+    ["Operations Agent","SAP Intelligence","Inventory • credit • availability • operational exceptions","API Ready"],
+    ["Proposal Agent","Commercial Preparation","Pricing rules • optional Cross/Up Sell • proposal package","Active"],
+]
+AGENTS_DF = pd.DataFrame(AGENTS, columns=["Agent","Role","Scope","Status"])
 
 
 def brl(v): return f"R$ {float(v):,.0f}".replace(",","X").replace(".",",").replace("X",".")
@@ -69,6 +78,29 @@ BASE=[
 COL=["OPP","Customer","Seller","Value","SF Stage","Score","Revenue","Conversion","Inventory","SLA","Credit","Items in Quote","Cross Sell / Up Sell","Days Waiting","Source","Needs Review"]
 if "opps" not in st.session_state: st.session_state.opps=pd.DataFrame(BASE,columns=COL)
 opps=st.session_state.opps
+if "Demand Description" not in opps.columns:
+    opps["Demand Description"] = [
+        "Customer requested preventive kit availability and commercial proposal.",
+        "Customer requested sensor replacement and delivery timing.",
+        "Customer asked for consumables quotation and availability.",
+        "Technical call converted into commercial demand for electronic module.",
+        "Customer requested backup battery replacement.",
+        "Service discussion evolved into annual preventive contract opportunity.",
+        "Customer requested preventive kit replenishment.",
+        "Urgent request for inspiratory valve availability.",
+        "Customer requested flow sensor quotation.",
+        "Upgrade opportunity already in order process.",
+        "Low-value consumables request received via WhatsApp.",
+        "Battery replacement request with accessory opportunity.",
+        "Consumables proposal already sent.",
+        "Closed-won preventive kit opportunity.",
+        "Closed-lost sensor opportunity.",
+        "Service contract in order process.",
+        "Closed-won module opportunity.",
+        "Closed-lost battery opportunity.",
+    ]
+if "Channel Detail" not in opps.columns:
+    opps["Channel Detail"] = opps["Source"].map({"Email":"Commercial email","WhatsApp":"WhatsApp request"}).fillna("Service call")
 opps["Priority"]=opps.Score.map(priority)
 opps["Owner"]=opps.apply(lambda r:"Filipe" if r.Priority=="Normal" and r.Value<=10000 and r["SF Stage"] in ["Identify","Develop","Propose"] else r.Seller,axis=1)
 opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
@@ -132,7 +164,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 13</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -144,6 +176,9 @@ for s in STAGES:
     r=ss[ss['SF Stage']==s].iloc[0]
     st.sidebar.markdown(f'<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0"><b>{s}</b><span>{int(r.OPPs)} · {brl(r.Value)}</span></div>',unsafe_allow_html=True)
 st.sidebar.progress(min(open_value/AOP,1.0))
+st.sidebar.markdown("---")
+st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
+st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
 st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V13 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
@@ -213,10 +248,10 @@ if page=="Executive Dashboard":
         st.caption("Only Identify and Develop. Cross Sell / Up Sell and Generate Proposal live here — nowhere else.")
         wf=od[od['SF Stage'].isin(ACTIVE_WORKFLOW)].copy()
         if len(wf):
-            view=wf[["OPP","Priority","Customer","Owner","Items in Quote","Value","Cross Sell / Up Sell","Optional Value","Total Opportunity Value","SF Stage"]].copy()
+            view=wf[["OPP","Priority","Customer","Owner","Demand Description","Items in Quote","Value","Cross Sell / Up Sell","Optional Value","Total Opportunity Value","SF Stage"]].copy()
             view['Add to Proposal']=False; view['Generate Proposal']=False
             view['Value']=view.Value.map(brl); view['Optional Value']=view['Optional Value'].map(brl); view['Total Opportunity Value']=view['Total Opportunity Value'].map(brl)
-            edited=st.data_editor(view,use_container_width=True,hide_index=True,disabled=['OPP','Priority','Customer','Owner','Items in Quote','Value','Cross Sell / Up Sell','Optional Value','Total Opportunity Value','SF Stage'],column_config={'OPP':None,'Add to Proposal':st.column_config.CheckboxColumn('Add to Proposal'),'Generate Proposal':st.column_config.CheckboxColumn('Generate Proposal')},key=f"wf_{owner}")
+            edited=st.data_editor(view,use_container_width=True,hide_index=True,disabled=['OPP','Priority','Customer','Owner','Demand Description','Items in Quote','Value','Cross Sell / Up Sell','Optional Value','Total Opportunity Value','SF Stage'],column_config={'OPP':None,'Demand Description':st.column_config.TextColumn('Demand / Call Description',width='large'),'Add to Proposal':st.column_config.CheckboxColumn('Add to Proposal'),'Generate Proposal':st.column_config.CheckboxColumn('Generate Proposal')},key=f"wf_{owner}")
             req=edited[edited['Generate Proposal']]
             for _,er in req.iterrows():
                 rr=opps[opps.OPP==er.OPP].iloc[0]
@@ -248,6 +283,23 @@ if page=="Executive Dashboard":
             st.dataframe(gv,use_container_width=True,hide_index=True,height=370)
             idx=st.selectbox('Generate Outreach Text',g.index.tolist(),format_func=lambda i:f"{g.loc[i,'Customer']} — {g.loc[i,'Suggested Item']}",key='gtxt')
             if st.button('Generate Text',key='gbutton'): st.text_area('Suggested WhatsApp / Email',growth_message(g.loc[idx]),height=110)
+
+    st.markdown('<div class="section-title">Salesforce Demand Intake & Evolution</div>',unsafe_allow_html=True)
+    st.caption("V14 prepares a structured Salesforce record from the commercial call/request. API integration is represented as an integration-ready layer; definitive writes remain governed.")
+    ic1,ic2,ic3=st.columns(3)
+    with ic1:
+        intake_channel=st.selectbox("Channel",["Service Call","Email","WhatsApp"],key="intake_channel")
+        intake_customer=st.selectbox("Customer",sorted(opps.Customer.unique().tolist()),key="intake_customer")
+    with ic2:
+        intake_owner=st.selectbox("Commercial Owner",OWNERS,key="intake_owner")
+        intake_stage=st.selectbox("Salesforce Stage",STAGES,index=0,key="intake_stage")
+    with ic3:
+        intake_value=st.number_input("Estimated Opportunity Value",min_value=0,max_value=500000,value=25000,step=1000,key="intake_value")
+        intake_type=st.selectbox("Demand Type",["Part","Service","Cross Sell","Up Sell","Commercial Review"],key="intake_type")
+    intake_desc=st.text_area("Demand / Call Description",placeholder="Ex.: Customer called requesting replacement part, quantity, urgency, equipment context and expected delivery.",key="intake_desc")
+    if st.button("Prepare Salesforce Record",key="prepare_sf"):
+        st.success(f"CRM Agent prepared the record: {intake_customer} • {intake_channel} • {intake_type} • {brl(intake_value)} • stage {intake_stage}. Ready for governed Salesforce API submission.")
+        st.info("Next orchestration: CRM Agent → Operations Agent (SAP inventory/credit) → Priority Agent → owner routing → Proposal Agent when applicable.")
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
     q=open_od.sort_values('Score',ascending=False).head(8).copy()
@@ -288,7 +340,9 @@ Pricing exceptions, credit issues, inventory constraints, out-of-policy negotiat
 
 **Executive principle:** *Automate governed volume. Preserve human sellers for commercial judgment and higher-impact decisions.*
 
-**Operational rhythm:** one Executive Dashboard, one owner filter, four queues: **Workflow | FUP | Negotiation | Growth**.""")
+**Operational rhythm:** one Executive Dashboard, one owner filter, four queues: **Workflow | FUP | Negotiation | Growth**.
+
+**V14 transformation layer:** five coordinated agents — Filipe, CRM Agent, Priority Agent, Operations Agent and Proposal Agent — with Salesforce and SAP API-ready integration and human governance at financial-risk decisions.""")
 
 # ---------------------------- Filipe everywhere ----------------------------
 st.markdown('---')
