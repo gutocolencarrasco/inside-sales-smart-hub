@@ -1,85 +1,56 @@
-# Inside Sales Smart Hub V14.4
+# Inside Sales Smart Hub V15
 
-Cenário ampliado, com dados 100% fictícios e sem repetição de clientes entre Workflow e FUP.
+V15 transforma as filas em um fluxo comercial transacional, usando dados 100% fictícios.
 
-## Volume por responsável
-Para cada responsável — **Ana, Bruno, Carla e Filipe**:
-- **30 clientes em Workflow**
-- **70 clientes em FUP**
-- **100 clientes ativos únicos por responsável**
+## Filas / reports
+- **Workflow:** Identify only
+- **FUP:** Develop / Propose
+- **Growth:** Filipe
+- **Orders / Won:** Order Promised / Win Closed
+- **Lost:** Lost Closed
 
-Total do cenário:
-- **120 clientes em Workflow**
-- **280 clientes em FUP**
-- **400 oportunidades/clientes ativos únicos**
+## Regras de prioridade
+Workflow e FUP são ordenados automaticamente por:
+1. Priority Score (maior primeiro)
+2. SLA mais crítico
+3. Opportunity Value maior
+4. Days Waiting maior
 
-## Governança de estágio
-### Workflow
-- Somente **Identify**
-- OPP recém-criada pelo agente a partir de WhatsApp, E-mail ou Service Call
-- FUP Status = Not Started
-- Cliente ainda não entrou em negociação comercial
+## Opportunity Editor
+Ao clicar em uma linha de Workflow ou FUP, abre uma caixa de edição com:
+- Main Item
+- Quantity
+- Unit Price
+- Salesforce Stage
+- Action
+- Next FUP
+- Description / Commercial Notes
+- Cross Sell / Up Sell
+- Optional Qty / Unit Price
+- Generate Proposal / Revised Proposal
 
-### FUP
-- Somente **Develop** ou **Propose**
-- Cliente já teve interação comercial
-- Develop = desenvolvimento/negociação em andamento
-- Propose = proposta enviada / negociação e follow-up
-- Action editável
-- Next FUP editável
-- Proposal Review / Revised Proposal dentro do próprio FUP
+## Movimentação automática por Salesforce Stage
+- Identify → Workflow
+- Develop / Propose → FUP
+- Order Promised / Win Closed → Orders / Won
+- Lost Closed → Lost
 
-## Integridade do cenário
-Os nomes são gerados como clientes fictícios únicos. Nenhum cliente do Workflow é reutilizado no FUP.
+Lost Closed é automaticamente retirado de Open Pipeline, Revenue at Risk e valores de oportunidades ativas.
 
-Salesforce stages:
-**Identify → Develop → Propose → Order Promised → Win Closed → Lost Closed**
+## Salesforce synchronization concept
+Toda alteração salva:
+- atualiza a oportunidade no Smart Hub;
+- cria um **Salesforce Call / Activity Ticket** rastreável;
+- registra campos alterados (antes → depois);
+- adiciona a atualização à fila **API-ready** para espelhamento no Salesforce.
 
-## Hotfix
-Corrigido erro de runtime no Render causado por uma regra legada que tentava acessar a coluna `Seller`.
-O cenário V14.4 usa `Owner` e preserva exatamente 30 Workflow + 70 FUP por responsável.
+A demonstração não afirma conexão real com ambientes Philips/Salesforce/SAP.
 
-## FIX2 — Inventory runtime error
-Corrigido o erro:
-`AttributeError: 'DataFrame' object has no attribute 'Inventory'`
+## OPP Open Date
+Workflow e FUP exibem **OPP Open Date** como coluna não editável.
 
-Causa:
-o cenário ampliado V14.4 não estava criando as colunas de drivers comerciais usadas pelo dashboard.
-
-Correções:
-- Revenue
-- Conversion
-- Inventory
-- SLA
-- Credit
-
-Também foi adicionada compatibilidade com sessões antigas do Streamlit que ainda estejam em memória.
-
-## FIX3 — Revenue at Risk type error
-Corrigido `TypeError: Invalid comparison between dtype=str and int`.
-
-A coluna Inventory agora é categórica:
-- Normal
-- Alta
-- Altíssima
-
-Revenue at Risk passa a considerar oportunidades de prioridade Altíssima com:
-- Inventory em Alta/Altíssima, ou
-- Days Waiting > 10.
-
-Days Waiting e Value também são normalizados numericamente antes dos KPIs.
-
-## FIX4 — Priority Explainability
-Corrigido `TypeError: unsupported operand type(s) for /: 'str' and 'int'`.
-
-Causa:
-os drivers de prioridade agora são categóricos (`Normal`, `Alta`, `Altíssima`), mas a tabela de explainability ainda tentava dividir esses textos pelos pesos máximos.
-
-Correção:
-- Priority Score continua numérico.
-- Revenue, Conversion, Inventory, SLA e Credit permanecem categóricos.
-- A tabela agora mostra:
-  - 🟢 Normal
-  - 🟡 Alta
-  - 🔴 Altíssima
-- O código também aceita valores numéricos antigos por compatibilidade.
+## Cenário
+- 30 clientes Workflow por responsável
+- 70 clientes FUP por responsável
+- Clientes Workflow e FUP não se repetem no cenário inicial
+- 400 oportunidades fictícias no cenário inicial

@@ -9,7 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 
-st.set_page_config(page_title="Inside Sales Smart Hub V14", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Inside Sales Smart Hub V15", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------------------- Theme ----------------------------
 st.markdown("""<style>
@@ -29,8 +29,8 @@ div[data-testid="stMetric"]{background:white;border:1px solid var(--line);paddin
 
 AOP=4_000_000
 STAGES=["Identify","Develop","Propose","Order Promised","Win Closed","Lost Closed"]
-OPEN_STAGES=["Identify","Develop","Propose","Order Promised"]
-ACTIVE_WORKFLOW=["Identify","Develop"]
+OPEN_STAGES=["Identify","Develop","Propose"]
+ACTIVE_WORKFLOW=["Identify"]
 OWNERS=["Ana","Bruno","Carla","Filipe"]
 
 AGENTS = [
@@ -53,6 +53,95 @@ def component_level(points,maxp):
     r=points/maxp
     return "Altíssima" if r>=.80 else "Alta" if r>=.60 else "Normal"
 def component_icon(level): return {"Normal":"🟢","Alta":"🟡","Altíssima":"🔴"}.get(level,"⚪")
+
+
+# ---------------------------- V15 transactional helpers ----------------------------
+def stage_bucket(stage):
+    if stage == "Identify":
+        return "Workflow"
+    if stage in ["Develop","Propose"]:
+        return "FUP"
+    if stage in ["Order Promised","Win Closed"]:
+        return "Orders / Won"
+    if stage == "Lost Closed":
+        return "Lost"
+    return "Other"
+
+def queue_sort(df):
+    """Priority Score desc; tie-break SLA criticality, value and waiting days."""
+    if df.empty:
+        return df
+    x=df.copy()
+    level_rank={"Normal":1,"Alta":2,"Altíssima":3}
+    x["_sla_rank"]=x["SLA"].map(level_rank).fillna(0)
+    x["_value_num"]=pd.to_numeric(x["Value"],errors="coerce").fillna(0)
+    x["_wait_num"]=pd.to_numeric(x["Days Waiting"],errors="coerce").fillna(0)
+    return x.sort_values(
+        ["Score","_sla_rank","_value_num","_wait_num"],
+        ascending=[False,False,False,False]
+    ).drop(columns=["_sla_rank","_value_num","_wait_num"])
+
+def create_change_ticket(opp_id, owner, changes, action_text):
+    """Demo Salesforce mirror: creates a traceable activity/ticket for API sync."""
+    if "activity_log" not in st.session_state:
+        st.session_state.activity_log=[]
+    if "sf_sync_queue" not in st.session_state:
+        st.session_state.sf_sync_queue=[]
+    ticket=f"SF-{datetime.now().strftime('%H%M%S')}-{int(opp_id)}"
+    now=datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    change_text="; ".join([f"{k}: {v[0]} → {v[1]}" for k,v in changes.items()]) if changes else "Commercial action updated"
+    record={
+        "Ticket":ticket,"Date/Time":now,"OPP":int(opp_id),"Owner":owner,
+        "Action":action_text,"Changes":change_text,"SF Sync Status":"Queued / API-ready"
+    }
+    st.session_state.activity_log.insert(0,record)
+    st.session_state.sf_sync_queue.insert(0,record.copy())
+    return ticket
+
+def update_opportunity(opp_id, updates, action_text):
+    idx=opps.index[opps["OPP"]==opp_id]
+    if not len(idx):
+        return None, {}
+    i=idx[0]
+    changes={}
+    for field,new_value in updates.items():
+        old_value=opps.at[i,field] if field in opps.columns else None
+        # normalize dates/NaN for comparison
+        old_cmp="" if pd.isna(old_value) else str(old_value)
+        new_cmp="" if pd.isna(new_value) else str(new_value)
+        if old_cmp != new_cmp:
+            changes[field]=(old_value,new_value)
+            opps.at[i,field]=new_value
+
+    qty=max(int(opps.at[i,"Quantity"]),1)
+    unit=max(float(opps.at[i,"Unit Price"]),0)
+    opps.at[i,"Value"]=qty*unit
+    opps.at[i,"Items in Quote"]=f"{opps.at[i,'Main Item']} — {qty} un."
+
+    cs_qty=max(int(opps.at[i,"Cross Sell Qty"]),0)
+    cs_unit=max(float(opps.at[i,"Cross Sell Unit Price"]),0)
+    if str(opps.at[i,"Cross Sell / Up Sell"]).strip() in ["","—"] or cs_qty==0:
+        opps.at[i,"Optional Value"]=0.0
+    else:
+        opps.at[i,"Optional Value"]=cs_qty*cs_unit
+    opps.at[i,"Total Opportunity Value"]=float(opps.at[i,"Value"])+float(opps.at[i,"Optional Value"])
+
+    stage=opps.at[i,"SF Stage"]
+    if stage=="Identify":
+        opps.at[i,"FUP Status"]="Not Started"
+        opps.at[i,"Days Waiting"]=0
+    elif stage in ["Develop","Propose"]:
+        if str(opps.at[i,"FUP Status"])=="Not Started":
+            opps.at[i,"FUP Status"]="On Time"
+        if int(opps.at[i,"Days Waiting"])<=0:
+            opps.at[i,"Days Waiting"]=1
+    else:
+        opps.at[i,"FUP Status"]="Closed"
+
+    st.session_state.opps=opps
+    ticket=create_change_ticket(opp_id,opps.at[i,"Owner"],changes,action_text)
+    return ticket,changes
+
 
 # ---------------------------- Demo data: 100% fictitious ----------------------------
 BASE=[
@@ -92,7 +181,7 @@ def next_fup_date(days_waiting):
         delta = max(next_mark - d, 0)
     return date.today() + timedelta(days=delta)
 
-# ---------- V14.4 FIX4 SCALE SCENARIO ----------
+# ---------- V15 SCALE SCENARIO ----------
 # 100 unique customers per owner:
 # 30 in Workflow / Identify + 70 in FUP / Develop-Propose.
 # Customer names are 100% fictitious and never repeat between Workflow and FUP.
@@ -113,99 +202,98 @@ def build_scaled_opportunity_scenario():
         "Electronic Module","Patient Circuit","Consumables Pack","Service Contract",
         "Filter Kit","Accessory Set"
     ]
+    cross_items=[
+        "Filter Kit","Preventive Kit","Accessory Set","Backup Battery",
+        "Service Contract","Patient Circuit","Flow Sensor","Upgrade Package"
+    ]
     sources = ["WhatsApp","Email","Service Call"]
-    rows = []
-    opp_id = 1000
+    rows=[]
+    opp_id=1000
+    today=date.today()
 
-    # Unique customer naming by owner + queue + sequential id guarantees no overlap.
-    for owner_i, owner in enumerate(owners):
-        # WORKFLOW: exactly 30 per owner, Identify only, no FUP started.
+    for owner_i,owner in enumerate(owners):
+        # 30 unique Workflow customers per seller — Identify only
         for i in range(30):
-            opp_id += 1
-            customer = f"{prefixes[(i+owner_i)%len(prefixes)]} {suffixes[(i*3+owner_i)%len(suffixes)]} W{owner_i+1}-{i+1:02d}"
-            value = 4500 + ((i * 7300 + owner_i * 4100) % 118000)
-            priority = ["Normal","Alta","Altíssima"][(i + owner_i) % 3]
-            item = products[(i + owner_i) % len(products)]
-            optional = 0 if i % 3 else 2500 + ((i * 900) % 9000)
+            opp_id+=1
+            customer=f"{prefixes[(i+owner_i)%len(prefixes)]} {suffixes[(i*3+owner_i)%len(suffixes)]} W{owner_i+1}-{i+1:02d}"
+            score=55+((i*7+owner_i*3)%44)
+            main_item=products[(i+owner_i)%len(products)]
+            qty=1+(i%5)
+            unit=3500+((i*1450+owner_i*700)%14500)
+            cs=cross_items[(i+owner_i)%len(cross_items)] if i%3==0 else "—"
+            cs_qty=1 if cs!="—" else 0
+            cs_unit=2900+((i*650)%7200) if cs!="—" else 0
+            opened=today-timedelta(days=(i%12))
             rows.append({
-                "OPP":opp_id,
-                "Customer":customer,
-                "Owner":owner,
-                "Seller":owner,
-                "Priority":priority,
-                "Score":55 + ((i*7 + owner_i*3) % 44),
+                "OPP":opp_id,"Customer":customer,"Owner":owner,"Seller":owner,
+                "Priority":priority(score),"Score":score,
                 "Revenue":["Normal","Alta","Altíssima"][(i+1+owner_i)%3],
                 "Conversion":["Normal","Alta","Altíssima"][(i+2+owner_i)%3],
                 "Inventory":["Normal","Alta","Altíssima"][(i+owner_i)%3],
                 "SLA":["Normal","Alta","Altíssima"][(i+1)%3],
                 "Credit":["Normal","Alta","Altíssima"][(i+2)%3],
-                "Value":value,
-                "SF Stage":"Identify",
-                "FUP Status":"Not Started",
-                "Days Waiting":i % 3,
-                "Source":sources[(i+owner_i)%3],
-                "Items in Quote":1 + (i % 5),
-                "Cross Sell / Up Sell":item,
-                "Optional Value":optional,
-                "Needs Review":False,
+                "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
+                "Value":qty*unit,"Items in Quote":f"{main_item} — {qty} un.",
+                "Cross Sell / Up Sell":cs,"Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit,
+                "Optional Value":cs_qty*cs_unit,"Total Opportunity Value":qty*unit+cs_qty*cs_unit,
+                "SF Stage":"Identify","FUP Status":"Not Started","Days Waiting":0,
+                "Source":sources[(i+owner_i)%3],"Needs Review":False,
                 "Action":"First commercial contact",
-                "Demand Description":f"Inbound request received via {sources[(i+owner_i)%3]} for {item}. Opportunity automatically created by the agent.",
-                "Channel Detail":sources[(i+owner_i)%3]
+                "Description":f"New inbound opportunity automatically created from {sources[(i+owner_i)%3]}.",
+                "Demand Description":f"Inbound request received via {sources[(i+owner_i)%3]} for {main_item}.",
+                "Channel Detail":sources[(i+owner_i)%3],
+                "OPP Open Date":opened,"Next FUP":next_fup_date(0)
             })
 
-        # FUP: exactly 70 per owner, only Develop or Propose.
+        # 70 unique FUP customers per seller — Develop or Propose only
         for i in range(70):
-            opp_id += 1
-            customer = f"{prefixes[(i+owner_i+4)%len(prefixes)]} {suffixes[(i*5+owner_i+7)%len(suffixes)]} F{owner_i+1}-{i+1:02d}"
-            stage = "Develop" if i % 2 == 0 else "Propose"
-            waiting = 1 + ((i*2 + owner_i) % 24)
-            fup_status = "Overdue" if waiting >= 6 and i % 3 != 0 else "On Time"
-            value = 7000 + ((i * 9100 + owner_i * 6700) % 185000)
-            priority = ["Normal","Alta","Altíssima"][(i*2 + owner_i) % 3]
-            item = products[(i*2 + owner_i) % len(products)]
-            optional = 0 if i % 4 else 3500 + ((i * 1100) % 14000)
-            action = (
-                "Review customer feedback and adjust proposal"
-                if stage == "Propose"
-                else "Follow up commercial discussion and advance scope"
-            )
+            opp_id+=1
+            customer=f"{prefixes[(i+owner_i+4)%len(prefixes)]} {suffixes[(i*5+owner_i+7)%len(suffixes)]} F{owner_i+1}-{i+1:02d}"
+            stage="Develop" if i%2==0 else "Propose"
+            waiting=1+((i*2+owner_i)%24)
+            score=58+((i*5+owner_i*4)%41)
+            main_item=products[(i*2+owner_i)%len(products)]
+            qty=1+(i%6)
+            unit=4500+((i*1720+owner_i*900)%21500)
+            cs=cross_items[(i+owner_i+2)%len(cross_items)] if i%4==0 else "—"
+            cs_qty=1+(i%2) if cs!="—" else 0
+            cs_unit=3200+((i*790)%9000) if cs!="—" else 0
+            opened=today-timedelta(days=8+(i%45))
             rows.append({
-                "OPP":opp_id,
-                "Customer":customer,
-                "Owner":owner,
-                "Seller":owner,
-                "Priority":priority,
-                "Score":58 + ((i*5 + owner_i*4) % 41),
+                "OPP":opp_id,"Customer":customer,"Owner":owner,"Seller":owner,
+                "Priority":priority(score),"Score":score,
                 "Revenue":["Normal","Alta","Altíssima"][(i+2+owner_i)%3],
                 "Conversion":["Normal","Alta","Altíssima"][(i+owner_i)%3],
                 "Inventory":["Normal","Alta","Altíssima"][(i+1+owner_i)%3],
                 "SLA":["Normal","Alta","Altíssima"][(i+2)%3],
                 "Credit":["Normal","Alta","Altíssima"][(i+1)%3],
-                "Value":value,
+                "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
+                "Value":qty*unit,"Items in Quote":f"{main_item} — {qty} un.",
+                "Cross Sell / Up Sell":cs,"Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit,
+                "Optional Value":cs_qty*cs_unit,"Total Opportunity Value":qty*unit+cs_qty*cs_unit,
                 "SF Stage":stage,
-                "FUP Status":fup_status,
-                "Days Waiting":waiting,
-                "Source":sources[(i+owner_i+1)%3],
-                "Items in Quote":1 + (i % 6),
-                "Cross Sell / Up Sell":item,
-                "Optional Value":optional,
-                "Needs Review":stage=="Propose" and i % 3 == 1,
-                "Action":action,
-                "Demand Description":f"Customer interaction already started. Commercial follow-up for {item}.",
-                "Channel Detail":sources[(i+owner_i+1)%3]
+                "FUP Status":"Overdue" if waiting>10 else "On Time",
+                "Days Waiting":waiting,"Source":sources[(i+owner_i+1)%3],
+                "Needs Review":stage=="Propose" and i%3==1,
+                "Action":"Review proposal / customer feedback" if stage=="Propose" else "Advance commercial discussion",
+                "Description":"Commercial interaction already started. Follow-up is active.",
+                "Demand Description":f"Commercial follow-up for {main_item}.",
+                "Channel Detail":sources[(i+owner_i+1)%3],
+                "OPP Open Date":opened,"Next FUP":next_fup_date(waiting)
             })
+    return pd.DataFrame(rows)
 
-    df = pd.DataFrame(rows)
-    df["Total Opportunity Value"] = df["Value"] + df["Optional Value"]
-    df["Next FUP"] = df["Days Waiting"].apply(next_fup_date)
-    return df
-
-if "opps" not in st.session_state or len(st.session_state.opps) != 400:
+required_v15_cols={"Main Item","Quantity","Unit Price","Cross Sell Qty","Cross Sell Unit Price","Description","OPP Open Date"}
+if "opps" not in st.session_state or len(st.session_state.opps) != 400 or not required_v15_cols.issubset(set(st.session_state.opps.columns)):
     st.session_state.opps = build_scaled_opportunity_scenario()
+if "activity_log" not in st.session_state:
+    st.session_state.activity_log=[]
+if "sf_sync_queue" not in st.session_state:
+    st.session_state.sf_sync_queue=[]
 
 opps=st.session_state.opps
 
-# V14.4 FIX4 FIX2 — backward compatibility for older session-state datasets
+# V15 FIX2 — backward compatibility for older session-state datasets
 driver_defaults = {
     "Revenue":"Alta",
     "Conversion":"Alta",
@@ -219,7 +307,7 @@ for col, default_value in driver_defaults.items():
 
 # V14.3 commercial-stage governance
 
-# V14.4 FIX4 commercial-stage governance
+# V15 commercial-stage governance
 # Workflow = newly created opportunities from inbound WhatsApp / Email / Service Call.
 # They remain in Identify until the seller actually starts commercial interaction.
 workflow_mask = opps["SF Stage"].isin(["Identify","Develop"]) & opps["FUP Status"].eq("Not Started")
@@ -255,8 +343,7 @@ if "Demand Description" not in opps.columns:
 if "Channel Detail" not in opps.columns:
     opps["Channel Detail"] = opps["Source"].map({"Email":"Commercial email","WhatsApp":"WhatsApp request"}).fillna("Service call")
 opps["Priority"]=opps.Score.map(priority)
-# V14.4 FIX4 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
-opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
+# V15 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
 opps["Total Opportunity Value"]=opps["Value"]+opps["Optional Value"]
 
 
@@ -331,7 +418,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4 FIX4</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 15</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -347,7 +434,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 FIX4 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V15 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -373,7 +460,7 @@ if page=="Executive Dashboard":
     cols=st.columns(7)
     metrics=[
         ("Open Pipeline",brl(open_od.Value.sum()),f"{len(open_od)} open OPPs"),
-        ("AOP Attainment",pct((won_od.Value.sum()+open_od.Value.sum())/AOP*100),f"AOP {brl(AOP)}"),
+        ("AOP Attainment",pct((od[od["SF Stage"].isin(["Order Promised","Win Closed"])].Value.sum())/AOP*100),f"Secured vs AOP {brl(AOP)}"),
         ("Conversion Rate",pct(conv),"Commercial effectiveness"),
         ("Revenue at Risk",brl(revenue_risk),"High priority exposure"),
         ("Overdue FUP",str(len(overdue)),brl(overdue.Value.sum())),
@@ -415,147 +502,235 @@ if page=="Executive Dashboard":
         st.altair_chart(chart,use_container_width=True)
 
     st.markdown('<div class="section-title">Daily Commercial Queues</div>',unsafe_allow_html=True)
-    scenario_owner = od
-    workflow_count = len(scenario_owner[(scenario_owner["SF Stage"].eq("Identify")) & (scenario_owner["FUP Status"].eq("Not Started"))])
-    fup_count = len(scenario_owner[(scenario_owner["SF Stage"].isin(["Develop","Propose"])) & (scenario_owner["FUP Status"].isin(["On Time","Overdue"]))])
-    qc1,qc2,qc3=st.columns(3)
-    qc1.metric("Workflow Customers", workflow_count, "30 per seller" if owner!="All" else "120 total")
-    qc2.metric("FUP Customers", fup_count, "70 per seller" if owner!="All" else "280 total")
-    qc3.metric("Unique Active Customers", workflow_count+fup_count, "No Workflow/FUP duplication")
-    tabs=st.tabs(["Workflow","FUP + Proposal Review","Growth"])
 
+    scenario_owner=od
+    workflow_count=len(scenario_owner[scenario_owner["SF Stage"].eq("Identify")])
+    fup_count=len(scenario_owner[scenario_owner["SF Stage"].isin(["Develop","Propose"])])
+    orderwon_count=len(scenario_owner[scenario_owner["SF Stage"].isin(["Order Promised","Win Closed"])])
+    lost_count=len(scenario_owner[scenario_owner["SF Stage"].eq("Lost Closed")])
+    qc1,qc2,qc3,qc4=st.columns(4)
+    qc1.metric("Workflow",workflow_count,"Identify")
+    qc2.metric("FUP",fup_count,"Develop / Propose")
+    qc3.metric("Orders / Won",orderwon_count,"Order Promised / Win Closed")
+    qc4.metric("Lost",lost_count,"Excluded from open pipeline")
+
+    tabs=st.tabs(["Workflow","FUP","Growth","Orders / Won","Lost"])
+
+    # ---------------- Workflow ----------------
     with tabs[0]:
-        st.caption("Workflow contains only newly created inbound opportunities in Identify. They came from WhatsApp, Email or Service Call and have not yet entered commercial negotiation.")
-        wf=od[(od['SF Stage'].eq('Identify')) & (od['FUP Status'].eq('Not Started'))].copy()
+        st.caption("Identify only. Rows are sorted automatically by Priority Score ↓, then SLA criticality, Opportunity Value and Days Waiting. Click a row to open Opportunity Editor.")
+        wf=queue_sort(od[od["SF Stage"].eq("Identify")].copy())
         if len(wf):
-            view=wf[["OPP","Priority","Customer","Owner","Demand Description","Items in Quote","Value","Cross Sell / Up Sell","Optional Value","Total Opportunity Value","SF Stage"]].copy()
-            view['Add to Proposal']=False
-            view['Generate Proposal']=False
-            view['Value']=view.Value.map(brl)
-            view['Optional Value']=view['Optional Value'].map(brl)
-            view['Total Opportunity Value']=view['Total Opportunity Value'].map(brl)
-            edited=st.data_editor(
-                view,
+            wf_view=wf[["OPP","OPP Open Date","Priority","Score","Customer","Owner","Main Item","Quantity","Value","SF Stage","Description"]].copy()
+            wf_view["OPP Open Date"]=pd.to_datetime(wf_view["OPP Open Date"]).dt.date
+            wf_view["Value"]=wf_view["Value"].map(brl)
+            wf_view=wf_view.rename(columns={"Score":"Priority Score","Value":"Opportunity Value"})
+            event=st.dataframe(
+                wf_view,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['OPP','Priority','Customer','Owner','Demand Description','Items in Quote','Value','Cross Sell / Up Sell','Optional Value','Total Opportunity Value','SF Stage'],
-                column_config={
-                    'OPP':None,
-                    'Demand Description':st.column_config.TextColumn('Demand / Call Description',width='large'),
-                    'Add to Proposal':st.column_config.CheckboxColumn('Add to Proposal'),
-                    'Generate Proposal':st.column_config.CheckboxColumn('Generate Proposal')
-                },
-                key=f"wf_{owner}"
+                height=390,
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"workflow_select_{owner}"
             )
-            req=edited[edited['Generate Proposal']]
-            for _,er in req.iterrows():
-                rr=opps[opps.OPP==er.OPP].iloc[0]
-                st.download_button(
-                    f"Download Proposal — {rr.Customer}",
-                    proposal_pdf(rr,bool(er['Add to Proposal'])),
-                    file_name=f"proposal_demo_{int(rr.OPP)}.pdf",
-                    mime='application/pdf',
-                    key=f"p_{owner}_{int(rr.OPP)}"
-                )
-        else:
-            st.info("No Identify opportunities waiting for first commercial interaction for this owner.")
+            selected_rows=event.selection.rows if event and hasattr(event,"selection") else []
+            if selected_rows:
+                selected_opp=int(wf.iloc[selected_rows[0]]["OPP"])
+                rr=opps[opps.OPP==selected_opp].iloc[0]
+                with st.container(border=True):
+                    st.markdown(f"### Opportunity Editor — {rr.Customer}")
+                    st.caption(f"OPP {int(rr.OPP)} • Opened {pd.to_datetime(rr['OPP Open Date']).strftime('%d/%m/%Y')} • Current stage: {rr['SF Stage']}")
+                    e1,e2,e3=st.columns(3)
+                    with e1:
+                        main_item=st.text_input("Main Item",str(rr["Main Item"]),key=f"wf_item_{selected_opp}")
+                        qty=st.number_input("Quantity",min_value=1,value=int(rr["Quantity"]),step=1,key=f"wf_qty_{selected_opp}")
+                        unit=st.number_input("Unit Price (R$)",min_value=0.0,value=float(rr["Unit Price"]),step=100.0,key=f"wf_unit_{selected_opp}")
+                    with e2:
+                        sf_stage=st.selectbox("Salesforce Stage",["Identify","Develop","Propose"],index=["Identify","Develop","Propose"].index(rr["SF Stage"]),key=f"wf_stage_{selected_opp}")
+                        action=st.text_input("Action",str(rr["Action"]),key=f"wf_action_{selected_opp}")
+                        next_fup=st.date_input("Next FUP",value=pd.to_datetime(rr["Next FUP"]).date(),key=f"wf_nf_{selected_opp}")
+                    with e3:
+                        description=st.text_area("Description / Commercial Notes",str(rr["Description"]),height=132,key=f"wf_desc_{selected_opp}")
 
+                    st.markdown("#### Cross Sell / Up Sell")
+                    c1,c2,c3=st.columns(3)
+                    with c1:
+                        cs_item=st.text_input("Optional Item",str(rr["Cross Sell / Up Sell"]),key=f"wf_cs_{selected_opp}")
+                    with c2:
+                        cs_qty=st.number_input("Optional Qty",min_value=0,value=int(rr["Cross Sell Qty"]),step=1,key=f"wf_csq_{selected_opp}")
+                    with c3:
+                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=float(rr["Cross Sell Unit Price"]),step=100.0,key=f"wf_csu_{selected_opp}")
+
+                    projected=qty*unit+cs_qty*cs_unit
+                    st.info(f"Projected opportunity value: {brl(projected)}")
+
+                    b1,b2=st.columns([1,1])
+                    with b1:
+                        if st.button("Save Opportunity + Create Salesforce Call",type="primary",key=f"wf_save_{selected_opp}"):
+                            ticket,changes=update_opportunity(
+                                selected_opp,
+                                {
+                                    "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
+                                    "SF Stage":sf_stage,"Action":action,"Next FUP":next_fup,
+                                    "Description":description,"Cross Sell / Up Sell":cs_item,
+                                    "Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit
+                                },
+                                action
+                            )
+                            st.success(f"Saved. Salesforce call/ticket {ticket} created. Stage routing applied automatically.")
+                            st.rerun()
+                    with b2:
+                        pr=opps[opps.OPP==selected_opp].iloc[0].copy()
+                        pr["Main Item"]=main_item; pr["Quantity"]=qty; pr["Unit Price"]=unit
+                        pr["Items in Quote"]=f"{main_item} — {qty} un."
+                        pr["Value"]=qty*unit
+                        pr["Cross Sell / Up Sell"]=cs_item; pr["Optional Value"]=cs_qty*cs_unit
+                        st.download_button(
+                            "Generate Proposal PDF",
+                            proposal_pdf(pr,include_optional=(cs_qty>0),revision=False),
+                            file_name=f"proposal_demo_{selected_opp}.pdf",
+                            mime="application/pdf",
+                            key=f"wf_pdf_{selected_opp}"
+                        )
+                    st.caption("Changing SF Stage to Develop or Propose removes the opportunity from Workflow and routes it automatically to FUP after Save.")
+        else:
+            st.info("No Identify opportunities for this filter.")
+
+    # ---------------- FUP ----------------
     with tabs[1]:
-        st.caption("All follow-up and post-proposal negotiation live here. The seller can edit the Action and define the Next FUP date directly in the table.")
-        f=fup_od.copy()
+        st.caption("Develop / Propose only. Sorted automatically by Priority Score ↓. Click a row to edit pricing, items, quantity, Salesforce stage, description, Action, Next FUP and proposal.")
+        f=queue_sort(od[od["SF Stage"].isin(["Develop","Propose"])].copy())
         if len(f):
-            f['Opportunity Value']=f.Value.map(brl)
-            f['Action']=f['Action'].fillna("")
-            f['Next FUP']=pd.to_datetime(f['Next FUP']).dt.date
-
-            fup_view=f[['OPP','Owner','Customer','SF Stage','Opportunity Value','Days Waiting','FUP Status','Action','Next FUP']].copy()
-
-            fup_edit=st.data_editor(
-                fup_view,
+            f_view=f[["OPP","OPP Open Date","Priority","Score","Customer","Owner","SF Stage","Value","Days Waiting","Action","Next FUP","Description"]].copy()
+            f_view["OPP Open Date"]=pd.to_datetime(f_view["OPP Open Date"]).dt.date
+            f_view["Next FUP"]=pd.to_datetime(f_view["Next FUP"]).dt.date
+            f_view["Value"]=f_view["Value"].map(brl)
+            f_view=f_view.rename(columns={"Score":"Priority Score","Value":"Opportunity Value"})
+            event=st.dataframe(
+                f_view,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['OPP','Owner','Customer','SF Stage','Opportunity Value','Days Waiting','FUP Status'],
-                column_config={
-                    'OPP':None,
-                    'Action':st.column_config.TextColumn(
-                        'Action',
-                        help='Editable field for the seller to describe the next commercial action.',
-                        width='large'
-                    ),
-                    'Next FUP':st.column_config.DateColumn(
-                        'Next FUP',
-                        help='Editable date for the next follow-up.',
-                        format='DD/MM/YYYY'
-                    )
-                },
-                key=f"fup_editor_{owner}"
+                height=420,
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"fup_select_{owner}"
             )
+            selected_rows=event.selection.rows if event and hasattr(event,"selection") else []
+            if selected_rows:
+                selected_opp=int(f.iloc[selected_rows[0]]["OPP"])
+                rr=opps[opps.OPP==selected_opp].iloc[0]
+                with st.container(border=True):
+                    st.markdown(f"### Opportunity Editor — {rr.Customer}")
+                    st.caption(f"OPP {int(rr.OPP)} • Opened {pd.to_datetime(rr['OPP Open Date']).strftime('%d/%m/%Y')} • Current stage: {rr['SF Stage']}")
+                    e1,e2,e3=st.columns(3)
+                    with e1:
+                        main_item=st.text_input("Main Item",str(rr["Main Item"]),key=f"fu_item_{selected_opp}")
+                        qty=st.number_input("Quantity",min_value=1,value=int(rr["Quantity"]),step=1,key=f"fu_qty_{selected_opp}")
+                        unit=st.number_input("Unit Price (R$)",min_value=0.0,value=float(rr["Unit Price"]),step=100.0,key=f"fu_unit_{selected_opp}")
+                    with e2:
+                        stage_options=["Develop","Propose","Order Promised","Win Closed","Lost Closed"]
+                        sf_stage=st.selectbox("Salesforce Stage",stage_options,index=stage_options.index(rr["SF Stage"]),key=f"fu_stage_{selected_opp}")
+                        action=st.text_input("Action",str(rr["Action"]),key=f"fu_action_{selected_opp}")
+                        next_fup=st.date_input("Next FUP",value=pd.to_datetime(rr["Next FUP"]).date(),key=f"fu_nf_{selected_opp}")
+                    with e3:
+                        description=st.text_area("Description / Commercial Notes",str(rr["Description"]),height=132,key=f"fu_desc_{selected_opp}")
 
-            if st.button("Save FUP Updates", key=f"save_fup_{owner}"):
-                for _,row in fup_edit.iterrows():
-                    idx=opps.index[opps.OPP==row.OPP]
-                    if len(idx):
-                        opps.loc[idx,'Action']=row['Action']
-                        opps.loc[idx,'Next FUP']=row['Next FUP']
-                st.session_state.opps=opps
-                st.success("FUP actions and next follow-up dates updated in the Smart Hub demo.")
+                    st.markdown("#### Cross Sell / Up Sell + Proposal")
+                    c1,c2,c3=st.columns(3)
+                    with c1:
+                        cs_item=st.text_input("Optional Item",str(rr["Cross Sell / Up Sell"]),key=f"fu_cs_{selected_opp}")
+                    with c2:
+                        cs_qty=st.number_input("Optional Qty",min_value=0,value=int(rr["Cross Sell Qty"]),step=1,key=f"fu_csq_{selected_opp}")
+                    with c3:
+                        cs_unit=st.number_input("Optional Unit Price (R$)",min_value=0.0,value=float(rr["Cross Sell Unit Price"]),step=100.0,key=f"fu_csu_{selected_opp}")
 
-            st.markdown("#### Proposal Adjustment")
-            st.caption("If the customer requests price, volume or scope changes after the proposal is sent, the review stays inside FUP — there is no separate Negotiation queue.")
-            n=f[f['SF Stage'].eq('Propose')].copy()
+                    projected=qty*unit+cs_qty*cs_unit
+                    st.info(f"Projected opportunity value: {brl(projected)}")
 
-            if len(n):
-                pick=st.selectbox(
-                    'Opportunity for Proposal Review',
-                    n.OPP.tolist(),
-                    format_func=lambda z:n.loc[n.OPP==z,'Customer'].iloc[0],
-                    key=f"rev_{owner}"
-                )
-                rr=n[n.OPP==pick].iloc[0]
-                review_type=st.selectbox(
-                    "Adjustment Type",
-                    ["Price","Volume","Scope","Price / Volume / Scope"],
-                    key=f"review_type_{owner}_{int(pick)}"
-                )
-                review_note=st.text_area(
-                    "Proposal Adjustment Notes",
-                    value=str(rr['Action']) if pd.notna(rr['Action']) else "",
-                    placeholder="Ex.: Customer requested 8 units instead of 5 and asked for revised commercial conditions.",
-                    key=f"review_note_{owner}_{int(pick)}"
-                )
-                cpa1,cpa2=st.columns([1,1])
-                with cpa1:
-                    if st.button("Update FUP Action",key=f"update_action_{owner}_{int(pick)}"):
-                        idx=opps.index[opps.OPP==pick]
-                        if len(idx):
-                            opps.loc[idx,'Action']=f"{review_type}: {review_note}".strip()
-                            st.session_state.opps=opps
-                            st.success("Proposal review registered as the FUP action.")
-                with cpa2:
-                    st.download_button(
-                        'Download Revised Proposal',
-                        proposal_pdf(rr,True,True),
-                        file_name=f"revised_proposal_demo_{int(rr.OPP)}.pdf",
-                        mime='application/pdf',
-                        key=f"rd_{owner}_{int(rr.OPP)}"
-                    )
-            else:
-                st.info("No Propose-stage opportunities for proposal review in this filter.")
+                    b1,b2=st.columns([1,1])
+                    with b1:
+                        if st.button("Save Opportunity + Create Salesforce Call",type="primary",key=f"fu_save_{selected_opp}"):
+                            ticket,changes=update_opportunity(
+                                selected_opp,
+                                {
+                                    "Main Item":main_item,"Quantity":qty,"Unit Price":unit,
+                                    "SF Stage":sf_stage,"Action":action,"Next FUP":next_fup,
+                                    "Description":description,"Cross Sell / Up Sell":cs_item,
+                                    "Cross Sell Qty":cs_qty,"Cross Sell Unit Price":cs_unit
+                                },
+                                action
+                            )
+                            st.success(f"Saved. Salesforce call/ticket {ticket} created. Opportunity routed to {stage_bucket(sf_stage)}.")
+                            st.rerun()
+                    with b2:
+                        pr=opps[opps.OPP==selected_opp].iloc[0].copy()
+                        pr["Main Item"]=main_item; pr["Quantity"]=qty; pr["Unit Price"]=unit
+                        pr["Items in Quote"]=f"{main_item} — {qty} un."
+                        pr["Value"]=qty*unit
+                        pr["Cross Sell / Up Sell"]=cs_item; pr["Optional Value"]=cs_qty*cs_unit
+                        st.download_button(
+                            "Generate Revised Proposal" if rr["SF Stage"]=="Propose" else "Generate Proposal PDF",
+                            proposal_pdf(pr,include_optional=(cs_qty>0),revision=(rr["SF Stage"]=="Propose")),
+                            file_name=f"{'revised_' if rr['SF Stage']=='Propose' else ''}proposal_demo_{selected_opp}.pdf",
+                            mime="application/pdf",
+                            key=f"fu_pdf_{selected_opp}"
+                        )
+                    st.caption("Order Promised / Win Closed move to Orders / Won. Lost Closed moves to Lost and is automatically excluded from Open Pipeline and active opportunity values.")
         else:
-            st.info("No FUP actions for this owner.")
+            st.info("No Develop / Propose opportunities for this filter.")
 
+    # ---------------- Growth ----------------
     with tabs[2]:
-        st.caption("Growth is always executed by Filipe. Target operating rhythm: 30–50 proactive portfolio actions/day. A signal becomes a Salesforce opportunity only after customer interaction/interest.")
-        if owner not in ['All','Filipe']:
-            st.info("Growth is owned by Filipe. Select All or Filipe to view the Growth queue.")
+        st.caption("Growth remains owned by Filipe. A signal becomes an opportunity only after customer interaction.")
+        if owner not in ["All","Filipe"]:
+            st.info("Growth is owned by Filipe. Select All or Filipe to view Growth.")
         else:
             g=growth.copy()
-            gv=g[['Growth ID','Customer','Responsible','Type','Suggested Item','Qty','Growth Potential','Growth Stage','Due']].copy()
-            gv['Growth Potential']=gv['Growth Potential'].map(brl)
-            st.dataframe(gv,use_container_width=True,hide_index=True,height=370)
-            idx=st.selectbox('Generate Outreach Text',g.index.tolist(),format_func=lambda i:f"{g.loc[i,'Customer']} — {g.loc[i,'Suggested Item']}",key='gtxt')
-            if st.button('Generate Text',key='gbutton'):
-                st.text_area('Suggested WhatsApp / Email',growth_message(g.loc[idx]),height=110)
+            gv=g[["Growth ID","Customer","Responsible","Type","Suggested Item","Qty","Growth Potential","Growth Stage","Due"]].copy()
+            gv["Growth Potential"]=gv["Growth Potential"].map(brl)
+            st.dataframe(gv,use_container_width=True,hide_index=True,height=390)
+            gx=st.selectbox("Generate Outreach Text",g.index.tolist(),format_func=lambda i:f"{g.loc[i,'Customer']} — {g.loc[i,'Suggested Item']}",key="gtxt_v15")
+            if st.button("Generate Text",key="gbutton_v15"):
+                st.text_area("Suggested WhatsApp / Email",growth_message(g.loc[gx]),height=110)
+
+    # ---------------- Orders / Won ----------------
+    with tabs[3]:
+        st.caption("Order Promised and Win Closed leave active FUP and are reported here.")
+        ow=queue_sort(od[od["SF Stage"].isin(["Order Promised","Win Closed"])].copy())
+        if len(ow):
+            owv=ow[["OPP","OPP Open Date","Customer","Owner","SF Stage","Value","Total Opportunity Value","Description"]].copy()
+            owv["OPP Open Date"]=pd.to_datetime(owv["OPP Open Date"]).dt.date
+            owv["Value"]=owv["Value"].map(brl); owv["Total Opportunity Value"]=owv["Total Opportunity Value"].map(brl)
+            st.dataframe(owv,use_container_width=True,hide_index=True,height=350)
+            o1,o2=st.columns(2)
+            o1.metric("Orders / Won OPPs",len(ow))
+            o2.metric("Orders / Won Value",brl(ow["Value"].sum()))
+        else:
+            st.info("No Order Promised / Win Closed opportunities for this filter.")
+
+    # ---------------- Lost ----------------
+    with tabs[4]:
+        st.caption("Lost Closed opportunities leave active FUP. Their values are excluded from Open Pipeline, Revenue at Risk and active opportunity totals.")
+        lo=od[od["SF Stage"].eq("Lost Closed")].copy()
+        if len(lo):
+            lov=lo[["OPP","OPP Open Date","Customer","Owner","Value","Description","Action"]].copy()
+            lov["OPP Open Date"]=pd.to_datetime(lov["OPP Open Date"]).dt.date
+            lov["Value"]=lov["Value"].map(brl)
+            st.dataframe(lov,use_container_width=True,hide_index=True,height=350)
+            l1,l2=st.columns(2)
+            l1.metric("Lost OPPs",len(lo))
+            l2.metric("Lost Value",brl(lo["Value"].sum()))
+        else:
+            st.info("No Lost Closed opportunities for this filter.")
+
+    # Salesforce activity / sync traceability
+    with st.expander("Salesforce Activity / Call Log",expanded=False):
+        log_df=pd.DataFrame(st.session_state.activity_log)
+        if len(log_df):
+            st.dataframe(log_df,use_container_width=True,hide_index=True,height=260)
+        else:
+            st.caption("No changes yet. Every Save creates a traceable Salesforce call/ticket and queues the update for API sync.")
 
     st.markdown('<div class="section-title">AI Demand Intake & Agent Orchestration</div>',unsafe_allow_html=True)
     st.caption("The seller does not fill a Salesforce form. The Hub interprets the incoming demand, completes the available context automatically and asks only for missing mandatory information.")
@@ -664,7 +839,7 @@ Pricing exceptions, credit issues, inventory constraints, out-of-policy negotiat
 
 **Executive principle:** *Automate governed volume. Preserve human sellers for commercial judgment and higher-impact decisions.*
 
-**Operational rhythm:** one Executive Dashboard, one owner filter, three queues: **Workflow | FUP + Proposal Review | Growth**.
+**Operational rhythm:** one Executive Dashboard, one owner filter and five transactional reports: **Workflow | FUP | Growth | Orders / Won | Lost**.
 
 **V14 transformation layer:** five coordinated agents — Filipe, CRM Agent, Priority Agent, Operations Agent and Proposal Agent — with Salesforce and SAP API-ready integration and human governance at financial-risk decisions.""")
 
