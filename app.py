@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -76,8 +76,135 @@ BASE=[
 [92018,"Rede Integra Norte","Carla",41000,"Lost Closed",64,18,18,12,9,7,"Bateria Backup Plus — 2 un.","—",0,"Email",False],
 ]
 COL=["OPP","Customer","Seller","Value","SF Stage","Score","Revenue","Conversion","Inventory","SLA","Credit","Items in Quote","Cross Sell / Up Sell","Days Waiting","Source","Needs Review"]
-if "opps" not in st.session_state: st.session_state.opps=pd.DataFrame(BASE,columns=COL)
+
+
+def next_fup_date(days_waiting):
+    """Demo cadence: D+2 → D+5 → D+10 → every +5 days."""
+    d = int(days_waiting)
+    if d < 2:
+        delta = 2 - d
+    elif d < 5:
+        delta = 5 - d
+    elif d < 10:
+        delta = 10 - d
+    else:
+        next_mark = ((d - 10) // 5 + 1) * 5 + 10
+        delta = max(next_mark - d, 0)
+    return date.today() + timedelta(days=delta)
+
+# ---------- V14.4 SCALE SCENARIO ----------
+# 100 unique customers per owner:
+# 30 in Workflow / Identify + 70 in FUP / Develop-Propose.
+# Customer names are 100% fictitious and never repeat between Workflow and FUP.
+def build_scaled_opportunity_scenario():
+    owners = ["Ana","Bruno","Carla","Filipe"]
+    prefixes = [
+        "Centro Clínico","Hospital","Instituto","Clínica","Centro Médico",
+        "Rede Hospitalar","Núcleo de Saúde","Unidade Médica","Complexo Clínico","Serviços Hospitalares"
+    ]
+    suffixes = [
+        "Atlas","Aurora","Horizonte","Vértice","Pioneiro","Alvorada","Solaris","Planalto","Estrela","Vale Azul",
+        "Jardins","Nova Vida","Integra","Prime","Central","Litoral","Montes","Veredas","Pontal","Sereno",
+        "América","Bela Vista","São Lucas","Esperança","Vila Nova","Riviera","Primavera","Imperial","Nobre","União",
+        "Aquarela","Liberdade","Ipê","Vitória","Harmonia","Progresso","Conexão","Excelência","Vanguarda","Essencial"
+    ]
+    products = [
+        "Preventive Kit","Flow Sensor","Backup Battery","Inspiratory Valve",
+        "Electronic Module","Patient Circuit","Consumables Pack","Service Contract",
+        "Filter Kit","Accessory Set"
+    ]
+    sources = ["WhatsApp","Email","Service Call"]
+    rows = []
+    opp_id = 1000
+
+    # Unique customer naming by owner + queue + sequential id guarantees no overlap.
+    for owner_i, owner in enumerate(owners):
+        # WORKFLOW: exactly 30 per owner, Identify only, no FUP started.
+        for i in range(30):
+            opp_id += 1
+            customer = f"{prefixes[(i+owner_i)%len(prefixes)]} {suffixes[(i*3+owner_i)%len(suffixes)]} W{owner_i+1}-{i+1:02d}"
+            value = 4500 + ((i * 7300 + owner_i * 4100) % 118000)
+            priority = ["Normal","Alta","Altíssima"][(i + owner_i) % 3]
+            item = products[(i + owner_i) % len(products)]
+            optional = 0 if i % 3 else 2500 + ((i * 900) % 9000)
+            rows.append({
+                "OPP":opp_id,
+                "Customer":customer,
+                "Owner":owner,
+                "Priority":priority,
+                "Score":55 + ((i*7 + owner_i*3) % 44),
+                "Value":value,
+                "SF Stage":"Identify",
+                "FUP Status":"Not Started",
+                "Days Waiting":i % 3,
+                "Source":sources[(i+owner_i)%3],
+                "Items in Quote":1 + (i % 5),
+                "Cross Sell / Up Sell":item,
+                "Optional Value":optional,
+                "Needs Review":False,
+                "Action":"First commercial contact",
+                "Demand Description":f"Inbound request received via {sources[(i+owner_i)%3]} for {item}. Opportunity automatically created by the agent.",
+                "Channel Detail":sources[(i+owner_i)%3]
+            })
+
+        # FUP: exactly 70 per owner, only Develop or Propose.
+        for i in range(70):
+            opp_id += 1
+            customer = f"{prefixes[(i+owner_i+4)%len(prefixes)]} {suffixes[(i*5+owner_i+7)%len(suffixes)]} F{owner_i+1}-{i+1:02d}"
+            stage = "Develop" if i % 2 == 0 else "Propose"
+            waiting = 1 + ((i*2 + owner_i) % 24)
+            fup_status = "Overdue" if waiting >= 6 and i % 3 != 0 else "On Time"
+            value = 7000 + ((i * 9100 + owner_i * 6700) % 185000)
+            priority = ["Normal","Alta","Altíssima"][(i*2 + owner_i) % 3]
+            item = products[(i*2 + owner_i) % len(products)]
+            optional = 0 if i % 4 else 3500 + ((i * 1100) % 14000)
+            action = (
+                "Review customer feedback and adjust proposal"
+                if stage == "Propose"
+                else "Follow up commercial discussion and advance scope"
+            )
+            rows.append({
+                "OPP":opp_id,
+                "Customer":customer,
+                "Owner":owner,
+                "Priority":priority,
+                "Score":58 + ((i*5 + owner_i*4) % 41),
+                "Value":value,
+                "SF Stage":stage,
+                "FUP Status":fup_status,
+                "Days Waiting":waiting,
+                "Source":sources[(i+owner_i+1)%3],
+                "Items in Quote":1 + (i % 6),
+                "Cross Sell / Up Sell":item,
+                "Optional Value":optional,
+                "Needs Review":stage=="Propose" and i % 3 == 1,
+                "Action":action,
+                "Demand Description":f"Customer interaction already started. Commercial follow-up for {item}.",
+                "Channel Detail":sources[(i+owner_i+1)%3]
+            })
+
+    df = pd.DataFrame(rows)
+    df["Total Opportunity Value"] = df["Value"] + df["Optional Value"]
+    df["Next FUP"] = df["Days Waiting"].apply(next_fup_date)
+    return df
+
+if "opps" not in st.session_state or len(st.session_state.opps) != 400:
+    st.session_state.opps = build_scaled_opportunity_scenario()
+
 opps=st.session_state.opps
+
+# V14.4 commercial-stage governance
+# Workflow = newly created opportunities from inbound WhatsApp / Email / Service Call.
+# They remain in Identify until the seller actually starts commercial interaction.
+workflow_mask = opps["SF Stage"].isin(["Identify","Develop"]) & opps["FUP Status"].eq("Not Started")
+opps.loc[workflow_mask, "SF Stage"] = "Identify"
+
+# FUP = customer interaction / negotiation has already started.
+# Therefore active FUP can only be Develop or Propose.
+fup_mask = opps["FUP Status"].isin(["On Time","Overdue"])
+opps.loc[fup_mask & ~opps["SF Stage"].eq("Propose"), "SF Stage"] = "Develop"
+
+st.session_state.opps = opps
 if "Demand Description" not in opps.columns:
     opps["Demand Description"] = [
         "Customer requested preventive kit availability and commercial proposal.",
@@ -105,6 +232,20 @@ opps["Priority"]=opps.Score.map(priority)
 opps["Owner"]=opps.apply(lambda r:"Filipe" if r.Priority=="Normal" and r.Value<=10000 and r["SF Stage"] in ["Identify","Develop","Propose"] else r.Seller,axis=1)
 opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
 opps["Total Opportunity Value"]=opps["Value"]+opps["Optional Value"]
+
+
+if "Action" not in opps.columns:
+    opps["Action"] = opps.apply(
+        lambda r: (
+            "Review customer feedback / proposal adjustment"
+            if r["SF Stage"] == "Propose"
+            else "Contact customer and advance opportunity"
+        ),
+        axis=1
+    )
+
+if "Next FUP" not in opps.columns:
+    opps["Next FUP"] = opps["Days Waiting"].apply(next_fup_date)
 
 # Filipe always owns Growth: 40 actions today (fictitious), within <= R$50K each
 customers=["Hospital Horizonte","Rede Vida Nova","Instituto Aurora","Hospital Monte Azul","Clínica Integra","Grupo Santa Luz","Hospital Nova Esperança","Centro Médico Solaris","Rede Plena Saúde","Hospital Parque Central","Clínica Vale Verde","Centro Diagnóstico Orion","Hospital Bela Vista","Rede Saúde Prime","Instituto Lumina","Hospital Porto Azul","Centro Clínico Atlas","Rede Integra Norte"]
@@ -155,16 +296,16 @@ def filipe_answer(q, owner):
     txt=q.lower(); od=filter_owner(opps,owner); open_od=od[od['SF Stage'].isin(OPEN_STAGES)]
     if "demanda" in txt or "o que" in txt and "hoje" in txt:
         new=len(od[od['SF Stage']=='Identify']); fup=od[(od['SF Stage'].isin(['Develop','Propose'])) & (od['Days Waiting']>0)]; nego=od[(od['SF Stage']=='Propose') & (od['Needs Review'])]; grow=growth if owner in ['All','Filipe'] else growth.iloc[0:0]
-        return f"{owner}: {new} New Opportunities, {len(fup)} FUP actions ({brl(fup.Value.sum())}), {len(nego)} Negotiation reviews e {len(grow)} Growth actions hoje."
+        return f"{owner}: {new} New Opportunities, {len(fup)} FUP actions ({brl(fup.Value.sum())}), {len(nego)} Proposal Reviews dentro do FUP e {len(grow)} Growth actions hoje."
     if "pipeline" in txt: return f"Open Pipeline de {owner}: {brl(open_od.Value.sum())} em {len(open_od)} oportunidades."
     if "growth" in txt: return f"Filipe possui {len(growth)} Growth actions planejadas hoje, com {brl(growth['Growth Potential'].sum())} de potencial interno. OPP só nasce após interação/interesse do cliente."
     if "fup" in txt: 
         f=od[od['SF Stage'].isin(['Develop','Propose'])]; ov=f[f['Days Waiting']>10]; return f"{owner}: {len(f)} FUPs, sendo {len(ov)} overdue e {brl(ov.Value.sum())} em atraso."
-    return "Posso responder sobre demandas do dia, Open Pipeline, FUP, Negotiation, Growth, Salesforce stages e performance usando os dados fictícios deste Smart Hub."
+    return "Posso responder sobre demandas do dia, Open Pipeline, FUP, Proposal Review, Growth, Salesforce stages e performance usando os dados fictícios deste Smart Hub."
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -180,7 +321,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V13 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -242,64 +383,206 @@ if page=="Executive Dashboard":
         st.altair_chart(chart,use_container_width=True)
 
     st.markdown('<div class="section-title">Daily Commercial Queues</div>',unsafe_allow_html=True)
-    tabs=st.tabs(["Workflow","FUP","Negotiation","Growth"])
+    scenario_owner = od
+    workflow_count = len(scenario_owner[(scenario_owner["SF Stage"].eq("Identify")) & (scenario_owner["FUP Status"].eq("Not Started"))])
+    fup_count = len(scenario_owner[(scenario_owner["SF Stage"].isin(["Develop","Propose"])) & (scenario_owner["FUP Status"].isin(["On Time","Overdue"]))])
+    qc1,qc2,qc3=st.columns(3)
+    qc1.metric("Workflow Customers", workflow_count, "30 per seller" if owner!="All" else "120 total")
+    qc2.metric("FUP Customers", fup_count, "70 per seller" if owner!="All" else "280 total")
+    qc3.metric("Unique Active Customers", workflow_count+fup_count, "No Workflow/FUP duplication")
+    tabs=st.tabs(["Workflow","FUP + Proposal Review","Growth"])
 
     with tabs[0]:
-        st.caption("Only Identify and Develop. Cross Sell / Up Sell and Generate Proposal live here — nowhere else.")
-        wf=od[od['SF Stage'].isin(ACTIVE_WORKFLOW)].copy()
+        st.caption("Workflow contains only newly created inbound opportunities in Identify. They came from WhatsApp, Email or Service Call and have not yet entered commercial negotiation.")
+        wf=od[(od['SF Stage'].eq('Identify')) & (od['FUP Status'].eq('Not Started'))].copy()
         if len(wf):
             view=wf[["OPP","Priority","Customer","Owner","Demand Description","Items in Quote","Value","Cross Sell / Up Sell","Optional Value","Total Opportunity Value","SF Stage"]].copy()
-            view['Add to Proposal']=False; view['Generate Proposal']=False
-            view['Value']=view.Value.map(brl); view['Optional Value']=view['Optional Value'].map(brl); view['Total Opportunity Value']=view['Total Opportunity Value'].map(brl)
-            edited=st.data_editor(view,use_container_width=True,hide_index=True,disabled=['OPP','Priority','Customer','Owner','Demand Description','Items in Quote','Value','Cross Sell / Up Sell','Optional Value','Total Opportunity Value','SF Stage'],column_config={'OPP':None,'Demand Description':st.column_config.TextColumn('Demand / Call Description',width='large'),'Add to Proposal':st.column_config.CheckboxColumn('Add to Proposal'),'Generate Proposal':st.column_config.CheckboxColumn('Generate Proposal')},key=f"wf_{owner}")
+            view['Add to Proposal']=False
+            view['Generate Proposal']=False
+            view['Value']=view.Value.map(brl)
+            view['Optional Value']=view['Optional Value'].map(brl)
+            view['Total Opportunity Value']=view['Total Opportunity Value'].map(brl)
+            edited=st.data_editor(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                disabled=['OPP','Priority','Customer','Owner','Demand Description','Items in Quote','Value','Cross Sell / Up Sell','Optional Value','Total Opportunity Value','SF Stage'],
+                column_config={
+                    'OPP':None,
+                    'Demand Description':st.column_config.TextColumn('Demand / Call Description',width='large'),
+                    'Add to Proposal':st.column_config.CheckboxColumn('Add to Proposal'),
+                    'Generate Proposal':st.column_config.CheckboxColumn('Generate Proposal')
+                },
+                key=f"wf_{owner}"
+            )
             req=edited[edited['Generate Proposal']]
             for _,er in req.iterrows():
                 rr=opps[opps.OPP==er.OPP].iloc[0]
-                st.download_button(f"Download Proposal — {rr.Customer}",proposal_pdf(rr,bool(er['Add to Proposal'])),file_name=f"proposal_demo_{int(rr.OPP)}.pdf",mime='application/pdf',key=f"p_{owner}_{int(rr.OPP)}")
-        else: st.info("No Identify / Develop opportunities for this owner.")
+                st.download_button(
+                    f"Download Proposal — {rr.Customer}",
+                    proposal_pdf(rr,bool(er['Add to Proposal'])),
+                    file_name=f"proposal_demo_{int(rr.OPP)}.pdf",
+                    mime='application/pdf',
+                    key=f"p_{owner}_{int(rr.OPP)}"
+                )
+        else:
+            st.info("No Identify opportunities waiting for first commercial interaction for this owner.")
 
     with tabs[1]:
-        st.caption("FUP actions are managed only in this queue. Filipe owns FUP for the governed OPPs assigned to him.")
-        f=fup_od.copy(); f['Opportunity Value']=f.Value.map(brl)
-        if len(f): st.dataframe(f[['Owner','Customer','SF Stage','Opportunity Value','Days Waiting','FUP Status','Priority']],use_container_width=True,hide_index=True)
-        else: st.info("No FUP actions for this owner.")
+        st.caption("All follow-up and post-proposal negotiation live here. The seller can edit the Action and define the Next FUP date directly in the table.")
+        f=fup_od.copy()
+        if len(f):
+            f['Opportunity Value']=f.Value.map(brl)
+            f['Action']=f['Action'].fillna("")
+            f['Next FUP']=pd.to_datetime(f['Next FUP']).dt.date
+
+            fup_view=f[['OPP','Owner','Customer','SF Stage','Opportunity Value','Days Waiting','FUP Status','Action','Next FUP']].copy()
+
+            fup_edit=st.data_editor(
+                fup_view,
+                use_container_width=True,
+                hide_index=True,
+                disabled=['OPP','Owner','Customer','SF Stage','Opportunity Value','Days Waiting','FUP Status'],
+                column_config={
+                    'OPP':None,
+                    'Action':st.column_config.TextColumn(
+                        'Action',
+                        help='Editable field for the seller to describe the next commercial action.',
+                        width='large'
+                    ),
+                    'Next FUP':st.column_config.DateColumn(
+                        'Next FUP',
+                        help='Editable date for the next follow-up.',
+                        format='DD/MM/YYYY'
+                    )
+                },
+                key=f"fup_editor_{owner}"
+            )
+
+            if st.button("Save FUP Updates", key=f"save_fup_{owner}"):
+                for _,row in fup_edit.iterrows():
+                    idx=opps.index[opps.OPP==row.OPP]
+                    if len(idx):
+                        opps.loc[idx,'Action']=row['Action']
+                        opps.loc[idx,'Next FUP']=row['Next FUP']
+                st.session_state.opps=opps
+                st.success("FUP actions and next follow-up dates updated in the Smart Hub demo.")
+
+            st.markdown("#### Proposal Adjustment")
+            st.caption("If the customer requests price, volume or scope changes after the proposal is sent, the review stays inside FUP — there is no separate Negotiation queue.")
+            n=f[f['SF Stage'].eq('Propose')].copy()
+
+            if len(n):
+                pick=st.selectbox(
+                    'Opportunity for Proposal Review',
+                    n.OPP.tolist(),
+                    format_func=lambda z:n.loc[n.OPP==z,'Customer'].iloc[0],
+                    key=f"rev_{owner}"
+                )
+                rr=n[n.OPP==pick].iloc[0]
+                review_type=st.selectbox(
+                    "Adjustment Type",
+                    ["Price","Volume","Scope","Price / Volume / Scope"],
+                    key=f"review_type_{owner}_{int(pick)}"
+                )
+                review_note=st.text_area(
+                    "Proposal Adjustment Notes",
+                    value=str(rr['Action']) if pd.notna(rr['Action']) else "",
+                    placeholder="Ex.: Customer requested 8 units instead of 5 and asked for revised commercial conditions.",
+                    key=f"review_note_{owner}_{int(pick)}"
+                )
+                cpa1,cpa2=st.columns([1,1])
+                with cpa1:
+                    if st.button("Update FUP Action",key=f"update_action_{owner}_{int(pick)}"):
+                        idx=opps.index[opps.OPP==pick]
+                        if len(idx):
+                            opps.loc[idx,'Action']=f"{review_type}: {review_note}".strip()
+                            st.session_state.opps=opps
+                            st.success("Proposal review registered as the FUP action.")
+                with cpa2:
+                    st.download_button(
+                        'Download Revised Proposal',
+                        proposal_pdf(rr,True,True),
+                        file_name=f"revised_proposal_demo_{int(rr.OPP)}.pdf",
+                        mime='application/pdf',
+                        key=f"rd_{owner}_{int(rr.OPP)}"
+                    )
+            else:
+                st.info("No Propose-stage opportunities for proposal review in this filter.")
+        else:
+            st.info("No FUP actions for this owner.")
 
     with tabs[2]:
-        st.caption("Proposal revisions after customer negotiation. No new-proposal controls are shown in Propose or later stages.")
-        n=negotiation.copy(); n['Opportunity Value']=n.Value.map(brl)
-        if len(n):
-            st.dataframe(n[['Owner','Customer','SF Stage','Opportunity Value','Priority','Items in Quote']],use_container_width=True,hide_index=True)
-            pick=st.selectbox('Review Proposal',n.OPP.tolist(),format_func=lambda z:n.loc[n.OPP==z,'Customer'].iloc[0],key=f"rev_{owner}")
-            rr=n[n.OPP==pick].iloc[0]
-            st.download_button('Download Revised Proposal',proposal_pdf(rr,True,True),file_name=f"revised_proposal_demo_{int(rr.OPP)}.pdf",mime='application/pdf',key=f"rd_{owner}_{int(rr.OPP)}")
-        else: st.info("No proposal reviews requested for this owner.")
-
-    with tabs[3]:
         st.caption("Growth is always executed by Filipe. Target operating rhythm: 30–50 proactive portfolio actions/day. A signal becomes a Salesforce opportunity only after customer interaction/interest.")
         if owner not in ['All','Filipe']:
             st.info("Growth is owned by Filipe. Select All or Filipe to view the Growth queue.")
         else:
-            g=growth.copy(); gv=g[['Growth ID','Customer','Responsible','Type','Suggested Item','Qty','Growth Potential','Growth Stage','Due']].copy(); gv['Growth Potential']=gv['Growth Potential'].map(brl)
+            g=growth.copy()
+            gv=g[['Growth ID','Customer','Responsible','Type','Suggested Item','Qty','Growth Potential','Growth Stage','Due']].copy()
+            gv['Growth Potential']=gv['Growth Potential'].map(brl)
             st.dataframe(gv,use_container_width=True,hide_index=True,height=370)
             idx=st.selectbox('Generate Outreach Text',g.index.tolist(),format_func=lambda i:f"{g.loc[i,'Customer']} — {g.loc[i,'Suggested Item']}",key='gtxt')
-            if st.button('Generate Text',key='gbutton'): st.text_area('Suggested WhatsApp / Email',growth_message(g.loc[idx]),height=110)
+            if st.button('Generate Text',key='gbutton'):
+                st.text_area('Suggested WhatsApp / Email',growth_message(g.loc[idx]),height=110)
 
-    st.markdown('<div class="section-title">Salesforce Demand Intake & Evolution</div>',unsafe_allow_html=True)
-    st.caption("V14 prepares a structured Salesforce record from the commercial call/request. API integration is represented as an integration-ready layer; definitive writes remain governed.")
-    ic1,ic2,ic3=st.columns(3)
-    with ic1:
-        intake_channel=st.selectbox("Channel",["Service Call","Email","WhatsApp"],key="intake_channel")
-        intake_customer=st.selectbox("Customer",sorted(opps.Customer.unique().tolist()),key="intake_customer")
-    with ic2:
-        intake_owner=st.selectbox("Commercial Owner",OWNERS,key="intake_owner")
-        intake_stage=st.selectbox("Salesforce Stage",STAGES,index=0,key="intake_stage")
-    with ic3:
-        intake_value=st.number_input("Estimated Opportunity Value",min_value=0,max_value=500000,value=25000,step=1000,key="intake_value")
-        intake_type=st.selectbox("Demand Type",["Part","Service","Cross Sell","Up Sell","Commercial Review"],key="intake_type")
-    intake_desc=st.text_area("Demand / Call Description",placeholder="Ex.: Customer called requesting replacement part, quantity, urgency, equipment context and expected delivery.",key="intake_desc")
-    if st.button("Prepare Salesforce Record",key="prepare_sf"):
-        st.success(f"CRM Agent prepared the record: {intake_customer} • {intake_channel} • {intake_type} • {brl(intake_value)} • stage {intake_stage}. Ready for governed Salesforce API submission.")
-        st.info("Next orchestration: CRM Agent → Operations Agent (SAP inventory/credit) → Priority Agent → owner routing → Proposal Agent when applicable.")
+    st.markdown('<div class="section-title">AI Demand Intake & Agent Orchestration</div>',unsafe_allow_html=True)
+    st.caption("The seller does not fill a Salesforce form. The Hub interprets the incoming demand, completes the available context automatically and asks only for missing mandatory information.")
+
+    ai1,ai2=st.columns([1.45,1.0])
+    with ai1:
+        st.markdown("#### Incoming Demand")
+        incoming_text=st.text_area(
+            "Call / E-mail / WhatsApp content",
+            value="Centro Clínico Atlas solicita 3 unidades do kit preventivo com urgência para reposição.",
+            height=115,
+            key="ai_incoming_demand"
+        )
+        incoming_channel=st.selectbox("Detected / informed channel",["Service Call","Email","WhatsApp"],key="ai_incoming_channel")
+        if st.button("Run AI Intake",type="primary",key="run_ai_intake"):
+            st.session_state["ai_intake_done"]=True
+
+    with ai2:
+        st.markdown("#### Agent Status")
+        status_rows=[
+            ["CRM Agent","Ready","Account match • demand • Salesforce"],
+            ["Operations Agent","Ready","SAP inventory • credit"],
+            ["Priority Agent","Ready","Score • SLA • routing"],
+            ["Filipe","Ready","Reactive • FUP • Growth"],
+            ["Proposal Agent","Standby","Proposal when applicable"],
+        ]
+        st.dataframe(pd.DataFrame(status_rows,columns=["Agent","Status","Action"]),use_container_width=True,hide_index=True)
+
+    if st.session_state.get("ai_intake_done",False):
+        st.markdown("#### Agent Orchestration Result")
+        r1,r2,r3,r4=st.columns(4)
+        with r1:
+            st.success("CRM Agent")
+            st.markdown("**Customer:** Centro Clínico Atlas  \n**Account:** Matched ✓  \n**Demand:** Structured ✓  \n**SF Stage:** Identify")
+        with r2:
+            st.info("Operations Agent")
+            st.markdown("**Inventory:** Available ✓  \n**Credit:** Released ✓  \n**SAP:** API-ready lookup")
+        with r3:
+            st.warning("Priority Agent")
+            st.markdown("**Score:** 82 / 100  \n**Priority:** Alta  \n**Routing:** Human seller")
+        with r4:
+            st.info("Commercial Routing")
+            st.markdown("**Assigned to:** Ana  \n**Next Action:** Contact customer  \n**FUP:** Not started")
+
+        sf_record=pd.DataFrame([{
+            "Customer":"Centro Clínico Atlas",
+            "Channel":incoming_channel,
+            "Demand Type":"Part",
+            "Demand Description":incoming_text,
+            "Estimated Value":"R$ 25.000",
+            "Owner":"Ana",
+            "Salesforce Stage":"Identify",
+            "Priority Score":82,
+            "Priority":"Alta"
+        }])
+        st.markdown("##### Structured Salesforce Record")
+        st.dataframe(sf_record,use_container_width=True,hide_index=True)
+        st.success("The opportunity is prepared automatically. Human intervention is required only when mandatory information or commercial judgment is missing.")
+        st.caption("Demo behavior: Salesforce and SAP are represented as API-ready integrations; no live Philips write is claimed.")
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
     q=open_od.sort_values('Score',ascending=False).head(8).copy()
@@ -340,7 +623,7 @@ Pricing exceptions, credit issues, inventory constraints, out-of-policy negotiat
 
 **Executive principle:** *Automate governed volume. Preserve human sellers for commercial judgment and higher-impact decisions.*
 
-**Operational rhythm:** one Executive Dashboard, one owner filter, four queues: **Workflow | FUP | Negotiation | Growth**.
+**Operational rhythm:** one Executive Dashboard, one owner filter, three queues: **Workflow | FUP + Proposal Review | Growth**.
 
 **V14 transformation layer:** five coordinated agents — Filipe, CRM Agent, Priority Agent, Operations Agent and Proposal Agent — with Salesforce and SAP API-ready integration and human governance at financial-risk decisions.""")
 
