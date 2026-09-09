@@ -54,3 +54,17 @@ Correções:
 - Credit
 
 Também foi adicionada compatibilidade com sessões antigas do Streamlit que ainda estejam em memória.
+
+## FIX3 — Revenue at Risk type error
+Corrigido `TypeError: Invalid comparison between dtype=str and int`.
+
+A coluna Inventory agora é categórica:
+- Normal
+- Alta
+- Altíssima
+
+Revenue at Risk passa a considerar oportunidades de prioridade Altíssima com:
+- Inventory em Alta/Altíssima, ou
+- Days Waiting > 10.
+
+Days Waiting e Value também são normalizados numericamente antes dos KPIs.
