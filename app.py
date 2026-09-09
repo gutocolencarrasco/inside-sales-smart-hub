@@ -131,6 +131,7 @@ def build_scaled_opportunity_scenario():
                 "OPP":opp_id,
                 "Customer":customer,
                 "Owner":owner,
+                "Seller":owner,
                 "Priority":priority,
                 "Score":55 + ((i*7 + owner_i*3) % 44),
                 "Value":value,
@@ -167,6 +168,7 @@ def build_scaled_opportunity_scenario():
                 "OPP":opp_id,
                 "Customer":customer,
                 "Owner":owner,
+                "Seller":owner,
                 "Priority":priority,
                 "Score":58 + ((i*5 + owner_i*4) % 41),
                 "Value":value,
@@ -229,7 +231,7 @@ if "Demand Description" not in opps.columns:
 if "Channel Detail" not in opps.columns:
     opps["Channel Detail"] = opps["Source"].map({"Email":"Commercial email","WhatsApp":"WhatsApp request"}).fillna("Service call")
 opps["Priority"]=opps.Score.map(priority)
-opps["Owner"]=opps.apply(lambda r:"Filipe" if r.Priority=="Normal" and r.Value<=10000 and r["SF Stage"] in ["Identify","Develop","Propose"] else r.Seller,axis=1)
+# V14.4 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
 opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
 opps["Total Opportunity Value"]=opps["Value"]+opps["Optional Value"]
 

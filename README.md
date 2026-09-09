@@ -34,3 +34,7 @@ Os nomes são gerados como clientes fictícios únicos. Nenhum cliente do Workfl
 
 Salesforce stages:
 **Identify → Develop → Propose → Order Promised → Win Closed → Lost Closed**
+
+## Hotfix
+Corrigido erro de runtime no Render causado por uma regra legada que tentava acessar a coluna `Seller`.
+O cenário V14.4 usa `Owner` e preserva exatamente 30 Workflow + 70 FUP por responsável.
