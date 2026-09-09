@@ -24,3 +24,31 @@ All demo data are fictitious.
 - Selecting the interaction shows the **full Filipe ↔ customer conversation** and AI Summary.
 - If the selected seller has no pending validation, no fictitious case is invented; the section shows `No interactions pending validation for this seller.`
 - Final action remains governed in the dedicated **Interaction Validation** report.
+
+
+## V16.3 — Interaction Validation UX
+- Removed the persistent interaction detail panel below the table.
+- Interaction Validation now behaves like Workflow and FUP.
+- The user clicks a customer row in the table to open an **Interaction Editor**.
+- The editor shows full Filipe ↔ customer conversation, AI summary, human validation note, opportunity owner and validated value.
+- Actions remain:
+  - Validate & Create Opportunity
+  - Keep / Dismiss as Growth
+- If no interaction exists for the selected seller, only the empty-state message is shown.
+
+
+## V16.4 — Interaction Editor decision flow
+- The full **Filipe ↔ Customer conversation** remains inside the Interaction Editor.
+- The two final human decisions are now:
+  - **Create Opportunity**
+  - **Close as Not Qualified**
+- `Close as Not Qualified` replaces the less clear `Keep / Dismiss as Growth`.
+- Closing requires a reason:
+  - No current interest
+  - No budget
+  - No fit / need
+  - Wrong contact
+  - Timing / revisit later
+  - Other
+- Closed interactions do not create a Salesforce opportunity, but the conversation, validation note and close reason remain in Growth history.
+- Creating an opportunity keeps the same behavior: Identify → assigned seller Workflow with the conversation attached.

@@ -466,7 +466,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 16.2</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 16.4</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Activity & Salesforce Sync","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -482,7 +482,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V16.2 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V16.4 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -782,13 +782,18 @@ if page=="Executive Dashboard":
                 c2.metric("Assigned Validator",rec["Assigned Validator"])
                 c3.metric("Commercial Load Index",rec["Commercial Load Index"])
                 st.caption("Validation routing uses seller capacity / Commercial Load Index, not Priority Score.")
-                st.markdown("#### Full Filipe ↔ Customer Conversation")
+                st.markdown("#### Conversation — Filipe ↔ Customer")
                 st.markdown(f"**Filipe:** {rec['Filipe Message']}")
                 st.markdown(f"**Customer:** {rec['Customer Reply']}")
                 st.info(f"**AI Summary:** {rec['AI Summary']}")
                 q1,q2=st.columns(2)
                 with q1:
                     note=st.text_area("Human Qualification / Validation Note","Customer response indicates a valid commercial opportunity.",key=f"iv_note_{selected_id}")
+                    close_reason=st.selectbox(
+                        "Close Reason (only if no opportunity is created)",
+                        ["No current interest","No budget","No fit / need","Wrong contact","Timing / revisit later","Other"],
+                        key=f"iv_close_reason_{selected_id}"
+                    )
                 with q2:
                     sellers=["Ana","Bruno","Carla"]
                     validator=rec["Assigned Validator"] if rec["Assigned Validator"] in sellers else "Ana"
@@ -796,7 +801,7 @@ if page=="Executive Dashboard":
                     estimated_value=st.number_input("Validated Estimated Value (R$)",min_value=0.0,value=float(rec["Estimated Potential"]),step=500.0,key=f"iv_value_{selected_id}")
                 b1,b2=st.columns(2)
                 with b1:
-                    if st.button("Validate & Create Opportunity",type="primary",key=f"iv_create_{selected_id}"):
+                    if st.button("Create Opportunity",type="primary",key=f"iv_create_{selected_id}"):
                         current=st.session_state.opps
                         new_id=int(current["OPP"].max())+1; score=78
                         new_row={"OPP":new_id,"Customer":rec["Customer"],"Owner":proposed_owner,"Seller":proposed_owner,
@@ -816,11 +821,12 @@ if page=="Executive Dashboard":
                         st.success(f"OPP {new_id} created in Identify and routed to {proposed_owner}'s Workflow with the full conversation attached.")
                         st.rerun()
                 with b2:
-                    if st.button("Keep / Dismiss as Growth",key=f"iv_dismiss_{selected_id}"):
+                    if st.button("Close as Not Qualified",key=f"iv_dismiss_{selected_id}"):
                         for item in st.session_state.interaction_validation:
                             if item["Validation ID"]==selected_id:
-                                item["Status"]="Kept / Dismissed as Growth"; item["Validation Note"]=note
-                        st.success("No Salesforce opportunity created. Interaction remains recorded as Growth.")
+                                item["Status"]="Closed — Not Qualified"; item["Validation Note"]=note
+                                item["Close Reason"]=close_reason
+                        st.success("Interaction closed as Not Qualified. No Salesforce opportunity was created; the conversation remains stored in Growth history.")
                         st.rerun()
         else:
             st.info("No customer interactions are awaiting human validation for this filter.")
@@ -872,44 +878,124 @@ if page=="Executive Dashboard":
         st.caption("Demo architecture: Salesforce/SAP are represented as integration-ready layers; no live Philips write is claimed.")
 
     st.markdown("### Filipe — Interaction Validation")
-    st.caption("Only customer replies generated by Filipe's proactive Growth outreach appear here. They are routed to a human seller by Commercial Load Index and do not become Salesforce opportunities until the seller validates them.")
+    st.caption("Only customer replies generated by Filipe's proactive Growth outreach appear here. The table follows the selected Owner filter and is ordered by Commercial Load Index.")
 
     pending_iv = pd.DataFrame(st.session_state.interaction_validation)
     if len(pending_iv):
         pending_iv = pending_iv[pending_iv["Status"].eq("Pending Human Validation")].copy()
 
-    # Respect the Executive Dashboard owner filter.
     if owner != "All" and len(pending_iv):
         pending_iv = pending_iv[pending_iv["Assigned Validator"].eq(owner)].copy()
 
     if len(pending_iv):
-        iv_summary = pending_iv[[
+        pending_iv = pending_iv.sort_values(["Commercial Load Index","Received"],ascending=[True,True]).reset_index(drop=True)
+        iv_view = pending_iv[[
             "Validation ID","Customer","Growth Type","Estimated Potential",
             "Assigned Validator","Commercial Load Index","Received","Status"
         ]].copy()
-        iv_summary["Estimated Potential"] = iv_summary["Estimated Potential"].map(brl)
-        st.dataframe(iv_summary,use_container_width=True,hide_index=True,height=170)
+        iv_view["Estimated Potential"] = iv_view["Estimated Potential"].map(brl)
 
-        iv_pick = st.selectbox(
-            "Customer interaction",
-            pending_iv["Validation ID"].tolist(),
-            format_func=lambda x: f"{pending_iv.loc[pending_iv['Validation ID']==x,'Customer'].iloc[0]} — {x}",
-            key=f"dashboard_iv_{owner}"
+        iv_event = st.dataframe(
+            iv_view,
+            use_container_width=True,
+            hide_index=True,
+            height=220,
+            on_select="rerun",
+            selection_mode="single-row",
+            key=f"dashboard_iv_table_{owner}"
         )
-        iv_rec = next(x for x in st.session_state.interaction_validation if x["Validation ID"] == iv_pick)
 
-        with st.container(border=True):
-            st.markdown(f"**{iv_rec['Customer']} — Pending Human Validation**")
-            c1,c2,c3 = st.columns(3)
-            c1.metric("Estimated Potential",brl(iv_rec["Estimated Potential"]))
-            c2.metric("Assigned to",iv_rec["Assigned Validator"])
-            c3.metric("Commercial Load Index",iv_rec["Commercial Load Index"])
-            st.markdown("**Filipe:** " + iv_rec["Filipe Message"])
-            st.markdown("**Customer:** " + iv_rec["Customer Reply"])
-            st.info("**AI Summary:** " + iv_rec["AI Summary"])
-            st.caption("Decision remains in the Interaction Validation tab: Validate & Create Opportunity or Keep / Dismiss as Growth.")
+        selected_rows = iv_event.selection.rows if iv_event and hasattr(iv_event,"selection") else []
+        if selected_rows:
+            selected_id = pending_iv.iloc[selected_rows[0]]["Validation ID"]
+            rec = next(x for x in st.session_state.interaction_validation if x["Validation ID"] == selected_id)
+
+            with st.container(border=True):
+                st.markdown(f"### Interaction Editor — {rec['Customer']}")
+                h1,h2,h3=st.columns(3)
+                h1.metric("Estimated Potential",brl(rec["Estimated Potential"]))
+                h2.metric("Assigned Validator",rec["Assigned Validator"])
+                h3.metric("Commercial Load Index",rec["Commercial Load Index"])
+
+                st.markdown("#### Conversation — Filipe ↔ Customer")
+                st.markdown(f"**Filipe:** {rec['Filipe Message']}")
+                st.markdown(f"**Customer:** {rec['Customer Reply']}")
+                st.info(f"**AI Summary:** {rec['AI Summary']}")
+
+                c1,c2=st.columns(2)
+                with c1:
+                    validation_note=st.text_area(
+                        "Human Qualification / Validation Note",
+                        "Customer response indicates a valid commercial opportunity.",
+                        key=f"dash_iv_note_{selected_id}"
+                    )
+                    close_reason=st.selectbox(
+                        "Close Reason (only if no opportunity is created)",
+                        ["No current interest","No budget","No fit / need","Wrong contact","Timing / revisit later","Other"],
+                        key=f"dash_iv_close_reason_{selected_id}"
+                    )
+                with c2:
+                    seller_opts=["Ana","Bruno","Carla"]
+                    assigned=rec["Assigned Validator"] if rec["Assigned Validator"] in seller_opts else "Ana"
+                    proposed_owner=st.selectbox(
+                        "Opportunity Owner",
+                        seller_opts,
+                        index=seller_opts.index(assigned),
+                        key=f"dash_iv_owner_{selected_id}"
+                    )
+                    estimated_value=st.number_input(
+                        "Validated Estimated Value (R$)",
+                        min_value=0.0,
+                        value=float(rec["Estimated Potential"]),
+                        step=500.0,
+                        key=f"dash_iv_value_{selected_id}"
+                    )
+
+                a1,a2=st.columns(2)
+                with a1:
+                    if st.button("Create Opportunity",type="primary",key=f"dash_iv_create_{selected_id}"):
+                        current=st.session_state.opps
+                        new_id=int(current["OPP"].max())+1
+                        score=78
+                        new_row={
+                            "OPP":new_id,"Customer":rec["Customer"],"Owner":proposed_owner,"Seller":proposed_owner,
+                            "Priority":priority(score),"Score":score,
+                            "Revenue":"Alta","Conversion":"Alta","Inventory":"Normal","SLA":"Alta","Credit":"Normal",
+                            "Main Item":rec["Growth Type"],"Quantity":1,"Unit Price":float(estimated_value),
+                            "Value":float(estimated_value),"Items in Quote":f"{rec['Growth Type']} — 1 un.",
+                            "Cross Sell / Up Sell":"—","Cross Sell Qty":0,"Cross Sell Unit Price":0.0,
+                            "Optional Value":0.0,"Total Opportunity Value":float(estimated_value),
+                            "SF Stage":"Identify","FUP Status":"Not Started","Days Waiting":0,
+                            "Source":"Filipe Growth","Needs Review":False,
+                            "Action":"Human-qualified Growth opportunity — first commercial follow-up",
+                            "Description":validation_note,"Demand Description":rec["AI Summary"],
+                            "Channel Detail":"Filipe Growth Interaction",
+                            "OPP Open Date":date.today(),"Next FUP":next_fup_date(0),
+                            "Opportunity Source":"Growth / Filipe",
+                            "Growth Conversation":f"Filipe: {rec['Filipe Message']} | Customer: {rec['Customer Reply']}"
+                        }
+                        st.session_state.opps=pd.concat([current,pd.DataFrame([new_row])],ignore_index=True)
+                        for item in st.session_state.interaction_validation:
+                            if item["Validation ID"]==selected_id:
+                                item["Status"]="Converted to Opportunity"
+                                item["Created OPP"]=new_id
+                        create_change_ticket(
+                            new_id,proposed_owner,
+                            {"SF Stage":("No OPP","Identify")},
+                            "Human validated Filipe interaction and created Salesforce opportunity"
+                        )
+                        st.success(f"OPP {new_id} created in Identify and routed to {proposed_owner}'s Workflow.")
+                        st.rerun()
+                with a2:
+                    if st.button("Close as Not Qualified",key=f"dash_iv_dismiss_{selected_id}"):
+                        for item in st.session_state.interaction_validation:
+                            if item["Validation ID"]==selected_id:
+                                item["Status"]="Closed — Not Qualified"
+                                item["Validation Note"]=validation_note
+                                item["Close Reason"]=close_reason
+                        st.success("Interaction closed as Not Qualified. No Salesforce opportunity was created; the conversation remains stored in Growth history.")
+                        st.rerun()
     else:
-        # User requested the area to remain effectively blank when no case exists for the selected seller.
         st.caption("No interactions pending validation for this seller.")
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
