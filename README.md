@@ -38,3 +38,19 @@ Salesforce stages:
 ## Hotfix
 Corrigido erro de runtime no Render causado por uma regra legada que tentava acessar a coluna `Seller`.
 O cenário V14.4 usa `Owner` e preserva exatamente 30 Workflow + 70 FUP por responsável.
+
+## FIX2 — Inventory runtime error
+Corrigido o erro:
+`AttributeError: 'DataFrame' object has no attribute 'Inventory'`
+
+Causa:
+o cenário ampliado V14.4 não estava criando as colunas de drivers comerciais usadas pelo dashboard.
+
+Correções:
+- Revenue
+- Conversion
+- Inventory
+- SLA
+- Credit
+
+Também foi adicionada compatibilidade com sessões antigas do Streamlit que ainda estejam em memória.

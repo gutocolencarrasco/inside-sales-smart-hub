@@ -92,7 +92,7 @@ def next_fup_date(days_waiting):
         delta = max(next_mark - d, 0)
     return date.today() + timedelta(days=delta)
 
-# ---------- V14.4 SCALE SCENARIO ----------
+# ---------- V14.4 FIX2 SCALE SCENARIO ----------
 # 100 unique customers per owner:
 # 30 in Workflow / Identify + 70 in FUP / Develop-Propose.
 # Customer names are 100% fictitious and never repeat between Workflow and FUP.
@@ -134,6 +134,11 @@ def build_scaled_opportunity_scenario():
                 "Seller":owner,
                 "Priority":priority,
                 "Score":55 + ((i*7 + owner_i*3) % 44),
+                "Revenue":["Normal","Alta","Altíssima"][(i+1+owner_i)%3],
+                "Conversion":["Normal","Alta","Altíssima"][(i+2+owner_i)%3],
+                "Inventory":["Normal","Alta","Altíssima"][(i+owner_i)%3],
+                "SLA":["Normal","Alta","Altíssima"][(i+1)%3],
+                "Credit":["Normal","Alta","Altíssima"][(i+2)%3],
                 "Value":value,
                 "SF Stage":"Identify",
                 "FUP Status":"Not Started",
@@ -171,6 +176,11 @@ def build_scaled_opportunity_scenario():
                 "Seller":owner,
                 "Priority":priority,
                 "Score":58 + ((i*5 + owner_i*4) % 41),
+                "Revenue":["Normal","Alta","Altíssima"][(i+2+owner_i)%3],
+                "Conversion":["Normal","Alta","Altíssima"][(i+owner_i)%3],
+                "Inventory":["Normal","Alta","Altíssima"][(i+1+owner_i)%3],
+                "SLA":["Normal","Alta","Altíssima"][(i+2)%3],
+                "Credit":["Normal","Alta","Altíssima"][(i+1)%3],
                 "Value":value,
                 "SF Stage":stage,
                 "FUP Status":fup_status,
@@ -195,7 +205,21 @@ if "opps" not in st.session_state or len(st.session_state.opps) != 400:
 
 opps=st.session_state.opps
 
-# V14.4 commercial-stage governance
+# V14.4 FIX2 FIX2 — backward compatibility for older session-state datasets
+driver_defaults = {
+    "Revenue":"Alta",
+    "Conversion":"Alta",
+    "Inventory":"Normal",
+    "SLA":"Alta",
+    "Credit":"Normal"
+}
+for col, default_value in driver_defaults.items():
+    if col not in opps.columns:
+        opps[col] = default_value
+
+# V14.3 commercial-stage governance
+
+# V14.4 FIX2 commercial-stage governance
 # Workflow = newly created opportunities from inbound WhatsApp / Email / Service Call.
 # They remain in Identify until the seller actually starts commercial interaction.
 workflow_mask = opps["SF Stage"].isin(["Identify","Develop"]) & opps["FUP Status"].eq("Not Started")
@@ -231,7 +255,7 @@ if "Demand Description" not in opps.columns:
 if "Channel Detail" not in opps.columns:
     opps["Channel Detail"] = opps["Source"].map({"Email":"Commercial email","WhatsApp":"WhatsApp request"}).fillna("Service call")
 opps["Priority"]=opps.Score.map(priority)
-# V14.4 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
+# V14.4 FIX2 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
 opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
 opps["Total Opportunity Value"]=opps["Value"]+opps["Optional Value"]
 
@@ -307,7 +331,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4 FIX2</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -323,7 +347,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 FIX2 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -336,7 +360,7 @@ if page=="Executive Dashboard":
     overdue=fup_od[fup_od['FUP Status']=='Overdue']
     negotiation=od[(od['SF Stage']=='Propose') & (od['Needs Review'])]
     growth_od=growth if owner in ['All','Filipe'] else growth.iloc[0:0]
-    revenue_risk=open_od[(open_od.Priority=='Altíssima') & ((open_od.Inventory<16)|(open_od['Days Waiting']>10))].Value.sum()
+    revenue_risk=open_od[(open_od['Priority']=='Altíssima') & ((open_od['Inventory']<16)|(open_od['Days Waiting']>10))].Value.sum()
     win_rate=(len(won_od)/len(closed_od)*100) if len(closed_od) else 0
     conv=float(team.loc[team.Owner==owner,'Conversion Rate'].iloc[0]) if owner in OWNERS else 30.7
 
@@ -365,7 +389,7 @@ if page=="Executive Dashboard":
         chart=alt.Chart(po).mark_bar(cornerRadiusTopLeft=4,cornerRadiusTopRight=4,color='#0878c9').encode(x=alt.X('Owner:N',title=None),y=alt.Y('Value:Q',title='Open Pipeline'),tooltip=['Owner',alt.Tooltip('Value:Q',format=',.0f')]).properties(height=250,title='Open Pipeline by Owner')
         st.altair_chart(chart,use_container_width=True)
     with c3:
-        pm=open_od.Priority.value_counts().reindex(['Altíssima','Alta','Normal']).fillna(0).reset_index(); pm.columns=['Priority','OPPs']
+        pm=open_od['Priority'].value_counts().reindex(['Altíssima','Alta','Normal']).fillna(0).reset_index(); pm.columns=['Priority','OPPs']
         chart=alt.Chart(pm).mark_arc(innerRadius=55).encode(theta='OPPs:Q',color=alt.Color('Priority:N',scale=alt.Scale(domain=['Altíssima','Alta','Normal'],range=['#df4343','#f4bd2a','#18a36f']),legend=alt.Legend(title=None)),tooltip=['Priority','OPPs']).properties(height=250,title='Priority Mix')
         st.altair_chart(chart,use_container_width=True)
 
