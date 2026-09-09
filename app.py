@@ -92,7 +92,7 @@ def next_fup_date(days_waiting):
         delta = max(next_mark - d, 0)
     return date.today() + timedelta(days=delta)
 
-# ---------- V14.4 FIX3 SCALE SCENARIO ----------
+# ---------- V14.4 FIX4 SCALE SCENARIO ----------
 # 100 unique customers per owner:
 # 30 in Workflow / Identify + 70 in FUP / Develop-Propose.
 # Customer names are 100% fictitious and never repeat between Workflow and FUP.
@@ -205,7 +205,7 @@ if "opps" not in st.session_state or len(st.session_state.opps) != 400:
 
 opps=st.session_state.opps
 
-# V14.4 FIX3 FIX2 — backward compatibility for older session-state datasets
+# V14.4 FIX4 FIX2 — backward compatibility for older session-state datasets
 driver_defaults = {
     "Revenue":"Alta",
     "Conversion":"Alta",
@@ -219,7 +219,7 @@ for col, default_value in driver_defaults.items():
 
 # V14.3 commercial-stage governance
 
-# V14.4 FIX3 commercial-stage governance
+# V14.4 FIX4 commercial-stage governance
 # Workflow = newly created opportunities from inbound WhatsApp / Email / Service Call.
 # They remain in Identify until the seller actually starts commercial interaction.
 workflow_mask = opps["SF Stage"].isin(["Identify","Develop"]) & opps["FUP Status"].eq("Not Started")
@@ -255,7 +255,7 @@ if "Demand Description" not in opps.columns:
 if "Channel Detail" not in opps.columns:
     opps["Channel Detail"] = opps["Source"].map({"Email":"Commercial email","WhatsApp":"WhatsApp request"}).fillna("Service call")
 opps["Priority"]=opps.Score.map(priority)
-# V14.4 FIX3 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
+# V14.4 FIX4 scaled demo preserves the assigned owner counts (30 Workflow + 70 FUP per owner).
 opps["Optional Value"]=opps.apply(lambda r: round(float(r.Value)*0.12,2) if r["Cross Sell / Up Sell"]!="—" else 0,axis=1)
 opps["Total Opportunity Value"]=opps["Value"]+opps["Optional Value"]
 
@@ -331,7 +331,7 @@ def filipe_answer(q, owner):
 
 # ---------------------------- Navigation ----------------------------
 st.sidebar.markdown("## PHILIPS\n**Health Systems**")
-st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4 FIX3</span>',unsafe_allow_html=True)
+st.sidebar.markdown('<span style="font-size:12px;opacity:.75">INSIDE SALES SMART HUB</span><br><span style="display:inline-block;margin-top:6px;background:#ffffff22;border:1px solid #ffffff55;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:850">VERSION 14.4 FIX4</span>',unsafe_allow_html=True)
 page=st.sidebar.radio("Navigation",["Executive Dashboard","Account 360","Management"],label_visibility="collapsed")
 
 # Compact Salesforce context, always exact stage order
@@ -347,7 +347,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown('<div style="font-size:12px;font-weight:850;margin-bottom:5px">AI AGENTS</div>',unsafe_allow_html=True)
 st.sidebar.markdown('<div style="font-size:10px;line-height:1.65;opacity:.92">● Filipe — Active<br>● CRM Agent — Active<br>● Priority Agent — Active<br>● Operations Agent — SAP API Ready<br>● Proposal Agent — Active</div>',unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 FIX3 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>INSIDE SALES <span class="smart">SMART HUB</span></h1><p>One dashboard. One commercial operating rhythm. · V14.4 FIX4 · 100% fictitious demo data</p></div>',unsafe_allow_html=True)
 
 # ---------------------------- Executive Dashboard ----------------------------
 if page=="Executive Dashboard":
@@ -618,7 +618,16 @@ if page=="Executive Dashboard":
 
     st.markdown('<div class="section-title">Priority Explainability</div>',unsafe_allow_html=True)
     q=open_od.sort_values('Score',ascending=False).head(8).copy()
-    for c,m in [('Revenue',30),('Conversion',25),('Inventory',20),('SLA',15),('Credit',10)]: q[c]=q[c].apply(lambda x:f"{component_icon(component_level(x,m))} {component_level(x,m)}")
+    for c,m in [('Revenue',30),('Conversion',25),('Inventory',20),('SLA',15),('Credit',10)]:
+        label_to_points = {'Normal': round(m*0.55), 'Alta': round(m*0.80), 'Altíssima': m}
+        q[c] = q[c].apply(
+            lambda x: (
+                f"{'🟢' if str(x)=='Normal' else '🟡' if str(x)=='Alta' else '🔴'} {str(x)}"
+                if str(x) in ['Normal','Alta','Altíssima']
+                else f"{int(float(x))}/{m}" if str(x).replace('.','',1).isdigit()
+                else str(x)
+            )
+        )
     st.dataframe(q[['Customer','Owner','Score','Revenue','Conversion','Inventory','SLA','Credit','SF Stage']].rename(columns={'Score':'Priority Score'}),use_container_width=True,hide_index=True)
     st.caption("Priority Score remains numeric (0–100). Revenue, Conversion, Inventory, SLA and Credit are visually classified. Conversion is composed of customer historical conversion (40%), product/family conversion (25%), purchase recency & recurrence (20%) and demand maturity (15%).")
 

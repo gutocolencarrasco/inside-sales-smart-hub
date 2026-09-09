@@ -68,3 +68,18 @@ Revenue at Risk passa a considerar oportunidades de prioridade Altíssima com:
 - Days Waiting > 10.
 
 Days Waiting e Value também são normalizados numericamente antes dos KPIs.
+
+## FIX4 — Priority Explainability
+Corrigido `TypeError: unsupported operand type(s) for /: 'str' and 'int'`.
+
+Causa:
+os drivers de prioridade agora são categóricos (`Normal`, `Alta`, `Altíssima`), mas a tabela de explainability ainda tentava dividir esses textos pelos pesos máximos.
+
+Correção:
+- Priority Score continua numérico.
+- Revenue, Conversion, Inventory, SLA e Credit permanecem categóricos.
+- A tabela agora mostra:
+  - 🟢 Normal
+  - 🟡 Alta
+  - 🔴 Altíssima
+- O código também aceita valores numéricos antigos por compatibilidade.
